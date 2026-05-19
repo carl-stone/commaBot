@@ -1,0 +1,14 @@
+{
+  "routes": [
+    {
+      "accountId": "default",
+      "chatId": "owner/repo",
+      "threadId": null,
+      "agentId": "your-agent-id",
+      "conversationId": "your-conversation-id",
+      "enabled": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}

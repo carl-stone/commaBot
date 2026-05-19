@@ -1,0 +1,5 @@
+{
+  "id": "github",
+  "displayName": "GitHub Webhooks",
+  "entry": "./plugin.mjs"
+}

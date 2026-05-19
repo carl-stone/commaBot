@@ -1,0 +1,19 @@
+services:
+  commabot:
+    build: .
+    init: true
+    container_name: commabot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      # Mount the target repo (adjust path to your setup)
+      - ${COMMA_REPO_PATH:-/home/user/comma}:/home/commabot/comma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
