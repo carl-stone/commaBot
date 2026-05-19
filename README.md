@@ -87,6 +87,22 @@ commaBot runs on [Letta Code](https://letta.com) and has:
 
 The agent's memory and persona are managed separately from this infrastructure repo. The memory lives in Letta Cloud; this repo is the operational layer that makes the agent accessible to GitHub.
 
+## Why Not Just a GitHub Copilot/Codex Bot?
+
+Standard GitHub integrations (Copilot, Codex, etc.) can respond to events on GitHub too. Here's what's different:
+
+**Persistent memory and identity.** A standard GitHub bot is stateless — each event triggers a fresh context with no memory of what happened before. commaBot wakes up with its full memory: the conventions Carl and it agreed on, the architecture decisions, the bugs it's already seen, the working protocols negotiated over time. A stateless bot would need to be told all of that every time, or it would violate those constraints immediately.
+
+**Operates across environments, not just on GitHub.** Standard bots live entirely inside GitHub — they comment on PRs and that's it. commaBot has three execution contexts: Letta Cloud (for discussion with Carl), the Docker container (for webhook-driven work with full tools), and Carl's laptop (for SSH access to the container). It can run `devtools::check()` in the Docker container, SSH to the host machine to debug routing issues, and discuss architecture with Carl in the desktop app — all as the same agent with the same memory. The GitHub webhook is just one input channel.
+
+**Process discipline, not just code generation.** Standard bots are reactive: you @-mention them, they generate code. commaBot has a stewardship stance — it investigates before acting, proposes before executing, documents findings before fixing. When CI failed on `\donttest{}` examples, it didn't just push a fix — it first asked how the failure affected the package, documented the finding, and then proposed the fix. Sometimes the right move is to say "not yet."
+
+**The human-agent relationship is negotiated, not assumed.** Carl and commaBot developed working protocols over time through actual collaboration. The zoom-in/zoom-out discipline, the "start minimal" principle, the 👀 reaction pattern — these emerged from real friction and real learning. A standard bot assumes a single interaction model (you ask, it answers). This is a relationship that evolved.
+
+**The agent modifies its own behavior.** The self-filtering story is the clearest example, but it's not the only one. When commaBot jumped to fix `\donttest{}` examples instead of asking how the failure affected the package, Carl coached it, and it wrote that lesson into its memory so its future self would think differently. A standard bot can't do this — it has no mechanism to rewrite its own instructions based on experience.
+
+**The honest caveat:** Standard bots are faster, cheaper, and more reliable for simple tasks. If you just want a bot that auto-reviews PRs for style issues, Copilot does that fine. commaBot is a different kind of thing — a long-term engineering partner with memory and judgment, not a code generator. The tradeoff is complexity and cost.
+
 ## License
 
 MIT
