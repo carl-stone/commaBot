@@ -2,8 +2,11 @@
   {
     "id": "dep-001",
     "category": "dependencies",
-    "prompt": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```",
-    "context": "Internal validation helper for the comma R package, which extends RangedSummarizedExperiment from Bioconductor.",
+    "difficulty": "easy",
+    "prompts": {
+      "sparse": "What external R packages does this function call? List each function and its package.\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```",
+      "detailed": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions (like stop, paste, length, is.null, etc.).\n\nThis function is from the comma Bioconductor package. The `object` parameter is a commaData object, which extends RangedSummarizedExperiment. Key Bioconductor packages to look for: GenomicRanges (provides mcols, seqnames, strand, start, GRanges), SummarizedExperiment (provides rowRanges, assay, ncol), and IRanges (provides start, end, width, which are also re-exported by GenomicRanges).\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```"
+    },
     "expected": {
       "packages": {
         "GenomicRanges": ["mcols"],
@@ -19,8 +22,11 @@
   {
     "id": "dep-002",
     "category": "dependencies",
-    "prompt": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\n```r\nsiteInfo <- function(object) {\n  gr <- rowRanges(object)\n  df <- data.frame(\n    chrom = as.character(seqnames(gr)),\n    position = start(gr),\n    strand = as.character(strand(gr)),\n    stringsAsFactors = FALSE\n  )\n  mc <- mcols(gr)\n  site_key <- paste0(\n    df$chrom, \":\", df$position, \":\", df$strand, \":\",\n    mc$mod_type, \":\", mc$motif\n  )\n  cbind(df, site_key = site_key, mc)\n}\n```",
-    "context": "Accessor function for the comma R package. Reconstructs a flat DataFrame from a commaData object (which extends RangedSummarizedExperiment).",
+    "difficulty": "medium",
+    "prompts": {
+      "sparse": "What external R packages does this function call? List each function and its package.\n\n```r\nsiteInfo <- function(object) {\n  gr <- rowRanges(object)\n  df <- data.frame(\n    chrom = as.character(seqnames(gr)),\n    position = start(gr),\n    strand = as.character(strand(gr)),\n    stringsAsFactors = FALSE\n  )\n  mc <- mcols(gr)\n  site_key <- paste0(\n    df$chrom, \":\", df$position, \":\", df$strand, \":\",\n    mc$mod_type, \":\", mc$motif\n  )\n  cbind(df, site_key = site_key, mc)\n}\n```",
+      "detailed": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\nThis function is from the comma Bioconductor package. The `object` parameter is a commaData object extending RangedSummarizedExperiment. Key Bioconductor packages: GenomicRanges (mcols, seqnames, strand, start, GRanges), SummarizedExperiment (rowRanges, assay, ncol), IRanges (start, end, width — also re-exported by GenomicRanges). Note: seqnames() and strand() are accessors from GenomicRanges, not base R. start() is from IRanges/GenomicRanges.\n\n```r\nsiteInfo <- function(object) {\n  gr <- rowRanges(object)\n  df <- data.frame(\n    chrom = as.character(seqnames(gr)),\n    position = start(gr),\n    strand = as.character(strand(gr)),\n    stringsAsFactors = FALSE\n  )\n  mc <- mcols(gr)\n  site_key <- paste0(\n    df$chrom, \":\", df$position, \":\", df$strand, \":\",\n    mc$mod_type, \":\", mc$motif\n  )\n  cbind(df, site_key = site_key, mc)\n}\n```"
+    },
     "expected": {
       "packages": {
         "GenomicRanges": ["mcols", "seqnames", "strand", "start"],
@@ -36,16 +42,18 @@
   {
     "id": "dep-003",
     "category": "dependencies",
-    "prompt": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  object <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  assays <- assay(object)\n  meth <- assay(object, \"methylation\")\n  cov <- assay(object, \"coverage\")\n  low_cov <- rowSums(cov >= min_coverage) == ncol(object)\n  if (method == \"beta-binomial\") {\n    res <- .diffMethylBetaBinomial(meth, cov, design, mc)\n  } else if (method == \"limma\") {\n    res <- .diffMethylLimma(meth, cov, design, mc)\n  } else if (method == \"quasi_f\") {\n    res <- .diffMethylQuasiF(meth, cov, design, mc)\n  }\n  mcols(gr) <- cbind(mc, res)\n  BiocGenerics:::`replaceRows<-`(object, gr)\n}\n```",
-    "context": "Exported function for differential methylation testing in the comma R package.",
+    "difficulty": "hard",
+    "prompts": {
+      "sparse": "What external R packages does this function call? List each function and its package.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  object <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  assays <- assay(object)\n  meth <- assay(object, \"methylation\")\n  cov <- assay(object, \"coverage\")\n  low_cov <- rowSums(cov >= min_coverage) == ncol(object)\n  if (method == \"beta-binomial\") {\n    res <- .diffMethylBetaBinomial(meth, cov, design, mc)\n  } else if (method == \"limma\") {\n    res <- .diffMethylLimma(meth, cov, design, mc)\n  } else if (method == \"quasi_f\") {\n    res <- .diffMethylQuasiF(meth, cov, design, mc)\n  }\n  mcols(gr) <- cbind(mc, res)\n  BiocGenerics:::`replaceRows<-`(object, gr)\n}\n```",
+      "detailed": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions. Include internal helper calls (like .validateModType) only if they call external packages.\n\nThis function is from the comma Bioconductor package. Key packages: GenomicRanges (mcols, seqnames, strand, start), SummarizedExperiment (rowRanges, assay, ncol), BiocGenerics (replaceRows<-), IRanges (re-exports start/end/width). Note: ncol() on a SummarizedExperiment dispatches to the SE method, not base R. rowSums is base R. The BiocGenerics::: prefix means replaceRows<- is an internal from BiocGenerics.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  object <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  assays <- assay(object)\n  meth <- assay(object, \"methylation\")\n  cov <- assay(object, \"coverage\")\n  low_cov <- rowSums(cov >= min_coverage) == ncol(object)\n  if (method == \"beta-binomial\") {\n    res <- .diffMethylBetaBinomial(meth, cov, design, mc)\n  } else if (method == \"limma\") {\n    res <- .diffMethylLimma(meth, cov, design, mc)\n  } else if (method == \"quasi_f\") {\n    res <- .diffMethylQuasiF(meth, cov, design, mc)\n  }\n  mcols(gr) <- cbind(mc, res)\n  BiocGenerics:::`replaceRows<-`(object, gr)\n}\n```"
+    },
     "expected": {
       "packages": {
         "SummarizedExperiment": ["rowRanges", "assay", "ncol"],
         "GenomicRanges": ["mcols"],
-        "BiocGenerics": ["replaceRows<-"],
-        "base": ["rowSums"]
+        "BiocGenerics": ["replaceRows<-"]
       },
-      "scoring_notes": "Must identify SummarizedExperiment (rowRanges, assay), GenomicRanges (mcols), and BiocGenerics (replaceRows<-). ncol on a SummarizedExperiment dispatches to the SE method, not base R. rowSums is base R. replaceRows<- is a BiocGenerics internal. This is a harder test — more functions, some ambiguous."
+      "scoring_notes": "Must identify SummarizedExperiment (rowRanges, assay), GenomicRanges (mcols), and BiocGenerics (replaceRows<-). ncol on a SummarizedExperiment dispatches to the SE method, not base R. rowSums is base R. replaceRows<- is a BiocGenerics internal."
     },
     "max_score": 5
   }

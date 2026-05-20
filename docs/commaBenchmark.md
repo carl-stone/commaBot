@@ -131,28 +131,44 @@ Weighted average across categories, with execution-based categories weighted hig
 
 ## Prompt Format
 
-Each prompt is a JSON file containing an array of test cases:
+Each prompt is a JSON file containing an array of test cases. Prompts come in two variants — **sparse** and **detailed** — to measure prompt density effects:
+
+- **Sparse**: Minimal instructions, no domain context. Tests whether the model can infer what's needed from the code alone.
+- **Detailed**: Full instructions with domain context (Bioconductor package names, valid mod_type values, conventions). Tests whether the model performs better with more hand-holding.
+
+The difference between variants directly answers: **does adding more context improve performance enough to justify the extra prompt tokens?**
 
 ```json
 [
   {
     "id": "edge-001",
     "category": "edge-cases",
-    "prompt": "Read this R function and list all edge cases it handles:\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\"'mod_type' must be one of: %s\", paste(valid, collapse = \", \")))\n  }\n  mod_type\n}\n```\n\nList each edge case and what the function does for it.",
-    "context": "Internal validation helper for the comma R package. Used by all exported functions that accept a mod_type argument.",
+    "difficulty": "easy",
+    "prompts": {
+      "sparse": "List the edge cases in this function:\n\n```r\n.validateModType <- function(...) { ... }\n```",
+      "detailed": "Read this R function from the comma Bioconductor package and list all edge cases it handles. For each edge case, describe: (1) what condition triggers it, (2) what the function does when triggered. Include both error cases and non-error cases (like early returns).\n\n```r\n.validateModType <- function(...) { ... }\n```\n\nNote: This is an internal validation helper. `mcols()` and `rowRanges()` are from Bioconductor packages..."
+    },
     "expected": {
       "edge_cases": [
-        "mod_type is NULL → returns all valid mod_types",
-        "length(mod_type) != 1 → stops with error",
+        "mod_type is NULL → returns all valid mod_types (character vector)",
+        "length(mod_type) != 1 → stops with error message",
         "mod_type not in valid → stops with error listing valid values"
       ],
-      "keywords": ["NULL", "length", "%in%", "stop", "valid"],
-      "scoring_notes": "Must identify all three edge cases. Partial credit for 2/3. Full credit requires describing what the function does for each case, not just listing the condition."
+      "keywords": ["NULL", "length", "%in%", "stop", "return", "valid"],
+      "scoring_notes": "Must identify all 3 edge cases. Partial credit for 2/3. Full credit requires describing what the function does for each case, not just listing the condition."
     },
     "max_score": 3
   }
 ]
 ```
+
+### Difficulty Levels
+
+Each prompt is tagged as **easy**, **medium**, or **hard**. This lets us answer: at what complexity does the model break down?
+
+- **Easy**: Simple functions, few branches, no side effects
+- **Medium**: Multiple branches, some domain conventions, moderate complexity
+- **Hard**: Many branches, file I/O, S4 dispatch, subtle return paths
 
 ### Fields
 
@@ -160,8 +176,9 @@ Each prompt is a JSON file containing an array of test cases:
 |---|---|---|
 | `id` | yes | Unique identifier within the category (e.g., `edge-001`) |
 | `category` | yes | One of: `edge-cases`, `dependencies`, `roxygen2`, `pattern-matching`, `test-writing`, `return-values` |
-| `prompt` | yes | The full prompt text sent to the model |
-| `context` | no | Additional context about the function or task |
+| `difficulty` | yes | One of: `easy`, `medium`, `hard` |
+| `prompts.sparse` | yes | Minimal prompt — no domain context, just the task |
+| `prompts.detailed` | yes | Full prompt — domain context, conventions, examples |
 | `expected` | yes | Object with expected answers, keywords, and scoring notes |
 | `max_score` | yes | Maximum score for this prompt |
 
@@ -178,8 +195,14 @@ Each prompt is a JSON file containing an array of test cases:
 ### CLI Interface
 
 ```bash
-# Run all benchmarks against a model
+# Run all benchmarks against a model (both prompt variants)
 python runner.py --model qwen2.5-coder:7b
+
+# Run only sparse prompts (faster, tests inference without hand-holding)
+python runner.py --model qwen2.5-coder:7b --variant sparse
+
+# Run only detailed prompts (tests with full context)
+python runner.py --model qwen2.5-coder:7b --variant detailed
 
 # Run a single category
 python runner.py --model llama3.1:8b --category edge-cases

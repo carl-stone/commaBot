@@ -191,8 +191,13 @@ def load_prompts(category: str = None) -> list[dict]:
 
 
 def run_benchmark(model: str, host: str, category: str = None,
-                  exec_test: bool = False, timeout: int = 120) -> dict:
-    """Run the benchmark for a single model."""
+                  exec_test: bool = False, timeout: int = 120,
+                  prompt_variant: str = "both") -> dict:
+    """Run the benchmark for a single model.
+
+    Args:
+        prompt_variant: "sparse", "detailed", or "both" (runs each prompt twice)
+    """
     prompts = load_prompts(category)
     if not prompts:
         print(f"No prompts found for category: {category or 'all'}", file=sys.stderr)
@@ -205,69 +210,102 @@ def run_benchmark(model: str, host: str, category: str = None,
         "categories": {},
     }
 
+    # Determine which variants to run
+    if prompt_variant == "both":
+        variants = ["sparse", "detailed"]
+    else:
+        variants = [prompt_variant]
+
     for prompt in prompts:
         pid = prompt["id"]
         cat = prompt["category"]
-        print(f"  [{pid}] {prompt['prompt'][:60]}...")
+        difficulty = prompt.get("difficulty", "unknown")
 
-        # Send to Ollama
-        t0 = time.time()
-        resp = chat(model, prompt["prompt"], host, timeout=timeout)
-        elapsed = time.time() - t0
-
-        content = resp.get("message", {}).get("content", "")
-        eval_count = resp.get("eval_count", 0)
-        eval_duration = resp.get("eval_duration", 0)
-        tokens_per_sec = eval_count / (eval_duration / 1e9) if eval_duration > 0 else 0
-
-        # Score
-        scorer = SCORERS.get(cat, score_keywords)
-        score_result = scorer(content, prompt.get("expected", {}))
-
-        # Calculate numeric score
-        if cat == "edge-cases":
-            n_found = len(score_result.get("found", []))
-            max_score = prompt.get("max_score", n_found)
-            numeric_score = n_found
-        elif cat == "dependencies":
-            n_found = len(score_result.get("found_packages", {}))
-            n_missing = len(score_result.get("missing_packages", {}))
-            numeric_score = n_found
-            max_score = n_found + n_missing
-        elif cat == "roxygen2":
-            n_found = len(score_result.get("found_tags", []))
-            n_missing = len(score_result.get("missing_tags", []))
-            n_forbidden = len(score_result.get("forbidden_found", []))
-            numeric_score = max(0, n_found - n_forbidden)
-            max_score = n_found + n_missing
-        elif cat == "return-values":
-            n_found = len(score_result.get("found", []))
-            max_score = prompt.get("max_score", n_found)
-            numeric_score = n_found
+        # Get prompt text(s) — support both old format (single "prompt") and new format ("prompts.sparse"/"prompts.detailed")
+        if "prompts" in prompt:
+            prompt_texts = {v: prompt["prompts"][v] for v in variants if v in prompt["prompts"]}
         else:
-            # Generic keyword scoring
-            n_found = len(score_result.get("found", []))
-            n_missing = len(score_result.get("missing", []))
-            numeric_score = n_found
-            max_score = n_found + n_missing
+            # Legacy format: single "prompt" field
+            prompt_texts = {"legacy": prompt["prompt"]}
 
-        prompt_result = {
-            "id": pid,
-            "score": numeric_score,
-            "max_score": max_score,
-            "response": content,
-            "elapsed_seconds": round(elapsed, 2),
-            "tokens_per_sec": round(tokens_per_sec, 1),
-            "scoring": score_result,
-        }
+        for variant_name, prompt_text in prompt_texts.items():
+            label = f"{pid}/{variant_name}" if len(prompt_texts) > 1 else pid
+            print(f"  [{label}] ({difficulty}) {prompt_text[:60]}...")
 
-        if cat not in results["categories"]:
-            results["categories"][cat] = {"prompts": [], "score": 0, "max_score": 0}
-        results["categories"][cat]["prompts"].append(prompt_result)
-        results["categories"][cat]["score"] += numeric_score
-        results["categories"][cat]["max_score"] += max_score
+            # Send to Ollama
+            t0 = time.time()
+            resp = chat(model, prompt_text, host, timeout=timeout)
+            elapsed = time.time() - t0
 
-        print(f"    Score: {numeric_score}/{max_score} ({elapsed:.1f}s, {tokens_per_sec:.0f} tok/s)")
+            content = resp.get("message", {}).get("content", "")
+            eval_count = resp.get("eval_count", 0)
+            eval_duration = resp.get("eval_duration", 0)
+            tokens_per_sec = eval_count / (eval_duration / 1e9) if eval_duration > 0 else 0
+
+            # Score
+            scorer = SCORERS.get(cat, score_keywords)
+            score_result = scorer(content, prompt.get("expected", {}))
+
+            # Calculate numeric score
+            if cat == "edge-cases":
+                n_found = len(score_result.get("found", []))
+                max_score = prompt.get("max_score", n_found)
+                numeric_score = n_found
+            elif cat == "dependencies":
+                n_found = len(score_result.get("found_packages", {}))
+                n_missing = len(score_result.get("missing_packages", {}))
+                numeric_score = n_found
+                max_score = n_found + n_missing
+            elif cat == "roxygen2":
+                n_found = len(score_result.get("found_tags", []))
+                n_missing = len(score_result.get("missing_tags", []))
+                n_forbidden = len(score_result.get("forbidden_found", []))
+                numeric_score = max(0, n_found - n_forbidden)
+                max_score = n_found + n_missing
+            elif cat == "return-values":
+                n_found = len(score_result.get("found", []))
+                max_score = prompt.get("max_score", n_found)
+                numeric_score = n_found
+            else:
+                # Generic keyword scoring
+                n_found = len(score_result.get("found", []))
+                n_missing = len(score_result.get("missing", []))
+                numeric_score = n_found
+                max_score = n_found + n_missing
+
+            prompt_result = {
+                "id": pid,
+                "variant": variant_name,
+                "difficulty": difficulty,
+                "score": numeric_score,
+                "max_score": max_score,
+                "response": content,
+                "elapsed_seconds": round(elapsed, 2),
+                "tokens_per_sec": round(tokens_per_sec, 1),
+                "scoring": score_result,
+            }
+
+            # Key results by category/variant for comparison
+            cat_key = cat
+            if cat_key not in results["categories"]:
+                results["categories"][cat_key] = {"prompts": [], "score": 0, "max_score": 0, "by_variant": {}, "by_difficulty": {}}
+            results["categories"][cat_key]["prompts"].append(prompt_result)
+            results["categories"][cat_key]["score"] += numeric_score
+            results["categories"][cat_key]["max_score"] += max_score
+
+            # Track by variant
+            if variant_name not in results["categories"][cat_key]["by_variant"]:
+                results["categories"][cat_key]["by_variant"][variant_name] = {"score": 0, "max_score": 0}
+            results["categories"][cat_key]["by_variant"][variant_name]["score"] += numeric_score
+            results["categories"][cat_key]["by_variant"][variant_name]["max_score"] += max_score
+
+            # Track by difficulty
+            if difficulty not in results["categories"][cat_key]["by_difficulty"]:
+                results["categories"][cat_key]["by_difficulty"][difficulty] = {"score": 0, "max_score": 0}
+            results["categories"][cat_key]["by_difficulty"][difficulty]["score"] += numeric_score
+            results["categories"][cat_key]["by_difficulty"][difficulty]["max_score"] += max_score
+
+            print(f"    Score: {numeric_score}/{max_score} ({elapsed:.1f}s, {tokens_per_sec:.0f} tok/s)")
 
     # Calculate composite score
     total_weighted = 0
@@ -283,14 +321,15 @@ def run_benchmark(model: str, host: str, category: str = None,
 
 
 def compare_models(models: list[str], host: str, category: str = None,
-                   timeout: int = 120) -> None:
+                   timeout: int = 120, prompt_variant: str = "both") -> None:
     """Run benchmarks for multiple models and compare."""
     all_results = {}
     for model in models:
         print(f"\n{'='*60}")
         print(f"Model: {model}")
         print(f"{'='*60}")
-        results = run_benchmark(model, host, category, timeout=timeout)
+        results = run_benchmark(model, host, category, timeout=timeout,
+                               prompt_variant=prompt_variant)
         all_results[model] = results
 
     # Print comparison table
@@ -349,14 +388,18 @@ def main():
                         help="Timeout per request in seconds (default: 120)")
     parser.add_argument("--no-save", action="store_true",
                         help="Don't save results to file")
+    parser.add_argument("--variant", choices=["sparse", "detailed", "both"],
+                        default="both",
+                        help="Prompt variant: sparse, detailed, or both (default: both)")
     args = parser.parse_args()
 
     if args.compare:
-        compare_models(args.compare, args.host, args.category, args.timeout)
+        compare_models(args.compare, args.host, args.category, args.timeout, args.variant)
     elif args.model:
-        print(f"Running benchmark: model={args.model}, host={args.host}")
+        print(f"Running benchmark: model={args.model}, host={args.host}, variant={args.variant}")
         results = run_benchmark(args.model, args.host, args.category,
-                               exec_test=args.exec, timeout=args.timeout)
+                               exec_test=args.exec, timeout=args.timeout,
+                               prompt_variant=args.variant)
 
         # Print summary
         print(f"\n{'='*60}")

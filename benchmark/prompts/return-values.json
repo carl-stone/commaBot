@@ -2,8 +2,11 @@
   {
     "id": "ret-001",
     "category": "return-values",
-    "prompt": "What does this function return? Include ALL return paths — describe the return value and type for each path.\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```",
-    "context": "Internal validation helper for the comma R package.",
+    "difficulty": "easy",
+    "prompts": {
+      "sparse": "What does this function return? Include all return paths.\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```",
+      "detailed": "What does this function return? Include ALL return paths — describe the return value and type for each path. Note: stop() is not a return — it raises an error. Focus on explicit return() calls and implicit returns (the last expression).\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```\n\nThis is from the comma Bioconductor package. The `valid` variable is a character vector of mod_type levels (e.g., c(\"6mA\", \"5mC\")). The `mod_type` argument is a single character string."
+    },
     "expected": {
       "return_paths": [
         "mod_type is NULL → returns valid (character vector of all valid mod_types)",
@@ -18,8 +21,11 @@
   {
     "id": "ret-002",
     "category": "return-values",
-    "prompt": "What does this function return? Include ALL return paths — describe the return value and type for each path.\n\n```r\nwriteBED <- function(object, file, mod_type = NULL) {\n  if (!inherits(object, \"commaData\")) {\n    stop(\"'object' must be a commaData object\")\n  }\n  mod_type <- .validateModType(mod_type, object)\n  if (!is.character(file) || length(file) != 1) {\n    stop(\"'file' must be a single file path\")\n  }\n  # ... writes BED file ...\n  invisible(file)\n}\n```",
-    "context": "Exported function in the comma R package. Writes methylation sites to a BED file.",
+    "difficulty": "medium",
+    "prompts": {
+      "sparse": "What does this function return? Include all return paths.\n\n```r\nwriteBED <- function(object, file, mod_type = NULL) {\n  if (!inherits(object, \"commaData\")) {\n    stop(\"'object' must be a commaData object\")\n  }\n  mod_type <- .validateModType(mod_type, object)\n  if (!is.character(file) || length(file) != 1) {\n    stop(\"'file' must be a single file path\")\n  }\n  # ... writes BED file ...\n  invisible(file)\n}\n```",
+      "detailed": "What does this function return? Include ALL return paths — describe the return value and type for each path. Note: stop() is not a return — it raises an error. Pay special attention to invisible() returns.\n\n```r\nwriteBED <- function(object, file, mod_type = NULL) {\n  if (!inherits(object, \"commaData\")) {\n    stop(\"'object' must be a commaData object\")\n  }\n  mod_type <- .validateModType(mod_type, object)\n  if (!is.character(file) || length(file) != 1) {\n    stop(\"'file' must be a single file path\")\n  }\n  # ... writes BED file ...\n  invisible(file)\n}\n```\n\nThis is from the comma Bioconductor package. The function writes a BED file to disk. invisible() means the value is returned but not printed at the console."
+    },
     "expected": {
       "return_paths": [
         "success → returns file path invisibly (character string)",
@@ -34,8 +40,11 @@
   {
     "id": "ret-003",
     "category": "return-values",
-    "prompt": "What does this function return? Include ALL return paths — describe the return value and type for each path.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  mod_type <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  # ... runs differential methylation ...\n  mcols(gr) <- cbind(mc, res)\n  object\n}\n```",
-    "context": "Exported function for differential methylation testing in the comma R package. Returns a modified commaData object.",
+    "difficulty": "hard",
+    "prompts": {
+      "sparse": "What does this function return? Include all return paths.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  mod_type <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  # ... runs differential methylation ...\n  mcols(gr) <- cbind(mc, res)\n  object\n}\n```",
+      "detailed": "What does this function return? Include ALL return paths — describe the return value and type for each path. Note: stop() is not a return — it raises an error. Also consider errors that come from internal helper functions.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  mod_type <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  # ... runs differential methylation ...\n  mcols(gr) <- cbind(mc, res)\n  object\n}\n```\n\nThis is from the comma Bioconductor package. The function runs differential methylation testing. It returns a modified commaData object (S4 class extending RangedSummarizedExperiment) with result columns added to the mcols of the rowRanges. The .validateModType() helper can also stop with an error if mod_type is invalid."
+    },
     "expected": {
       "return_paths": [
         "success → returns a commaData object (same class as input, with result columns added to mcols)",
