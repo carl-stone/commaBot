@@ -275,38 +275,95 @@ Only output the JSON, nothing else."""
 
 def parse_judge_response(response_text: str) -> dict:
     """Parse the judge's JSON response, handling common formatting issues."""
-    # Try to extract JSON from the response (small models may add extra text)
     text = response_text.strip()
+
+    # Try to extract JSON from the response (small models may add extra text)
+    json_str = None
 
     # Try direct parse first
     try:
-        return json.loads(text)
+        json_str = text
+        parsed = json.loads(json_str)
     except json.JSONDecodeError:
-        pass
+        # Try to find JSON block (between ``` or braces)
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try to find the outermost braces
+            brace_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if brace_match:
+                json_str = brace_match.group(0)
 
-    # Try to find JSON block (between ``` or braces)
-    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
-            pass
+        if json_str:
+            try:
+                parsed = json.loads(json_str)
+            except json.JSONDecodeError:
+                return {
+                    "items": [], "score": 0, "total": 0,
+                    "summary": f"Failed to parse judge JSON: {text[:200]}",
+                    "parse_error": True,
+                }
+        else:
+            return {
+                "items": [], "score": 0, "total": 0,
+                "summary": f"No JSON found in judge response: {text[:200]}",
+                "parse_error": True,
+            }
 
-    # Try to find the outermost braces
-    brace_match = re.search(r'\{.*\}', text, re.DOTALL)
-    if brace_match:
-        try:
-            return json.loads(brace_match.group(0))
-        except json.JSONDecodeError:
-            pass
+    # Normalize the response format — small models may use different field names
+    items = []
 
-    # Failed to parse — return a fallback
+    # The judge may return items under "items" or "edge_cases" or other category-specific keys
+    raw_items = parsed.get("items", [])
+    if not raw_items:
+        # Try category-specific keys
+        for key in ["edge_cases", "return_paths", "packages", "tags", "elements", "tests"]:
+            if key in parsed:
+                raw_items = parsed[key]
+                break
+
+    for item in raw_items:
+        # Normalize rating field: "rating", "score", or "status"
+        rating = item.get("rating") or item.get("score") or item.get("status") or "missing"
+        # Normalize description field: "item", "description", or "expected"
+        desc = item.get("item") or item.get("description") or item.get("expected") or ""
+        reason = item.get("reason", "")
+
+        # Normalize rating values
+        rating_lower = rating.lower() if isinstance(rating, str) else str(rating)
+        if rating_lower in ("correct", "1", "1.0"):
+            rating_norm = "correct"
+        elif rating_lower in ("partial", "0.5"):
+            rating_norm = "partial"
+        elif rating_lower in ("incorrect", "0", "0.0", "wrong"):
+            rating_norm = "incorrect"
+        else:
+            rating_norm = "missing"
+
+        items.append({
+            "item": desc,
+            "rating": rating_norm,
+            "reason": reason,
+        })
+
+    # Compute score from items if not provided
+    score = parsed.get("score")
+    total = parsed.get("total")
+
+    if score is None:
+        score_values = {"correct": 1, "partial": 0.5, "incorrect": 0, "missing": 0}
+        score = sum(score_values.get(i["rating"], 0) for i in items)
+    if total is None:
+        total = len(items)
+
+    summary = parsed.get("summary", "")
+
     return {
-        "items": [],
-        "score": 0,
-        "total": 0,
-        "summary": f"Failed to parse judge response: {text[:200]}",
-        "parse_error": True,
+        "items": items,
+        "score": score,
+        "total": total,
+        "summary": summary,
     }
 
 
