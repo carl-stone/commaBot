@@ -8,12 +8,35 @@ Evaluate local LLMs for subagent delegation in the commaBot workflow.
 # Run all benchmarks against a model
 python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434
 
+# Run with LLM judge (Gemma 4 E2B on MLX, laptop)
+python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434 \
+    --judge --judge-model mlx-community/gemma-4-e2b-it-4bit --judge-host http://localhost:8000
+
 # Run a single category
 python runner.py --model llama3.1:8b --category edge-cases --host http://carlpc:11434
 
 # Compare two models
 python runner.py --compare llama3.2:3b qwen2.5-coder:7b --host http://carlpc:11434
 ```
+
+## Architecture
+
+```
+Candidate model (Ollama on carlpc)  →  responses
+                                          ↓
+Judge model (MLX on laptop)         ←  responses + expected answers
+                                          ↓
+                                     keyword score + judge score
+```
+
+The candidate model runs on carlpc via Ollama. The judge model runs on your laptop via MLX (Apple Silicon). Two separate inference endpoints, one benchmark.
+
+## Scoring
+
+- **Keyword matching** (default): Fast, approximate — checks if expected keywords appear in the response
+- **LLM judge** (`--judge`): Slower, more accurate — a small model (Gemma 4 E2B) compares the response against the expected answer and rates each item as correct/partial/incorrect/missing
+
+When the judge is enabled, its score replaces the keyword score as the primary metric. Both scores are always saved in the results JSON.
 
 ## Adding New Prompts
 

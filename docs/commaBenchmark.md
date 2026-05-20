@@ -96,14 +96,20 @@ For extraction and documentation tasks. Check for expected keywords and patterns
 
 Automated checks flag presence/absence; human confirms significance.
 
-### Tier 3: LLM-as-Judge (automated, stronger model)
+### Tier 3: LLM-as-Judge (automated, small local model)
 
-For subjective quality assessment. Use Claude or GPT-4 as the judge:
+For subjective quality assessment. Uses a small local model (e.g., Gemma 4 E2B on MLX) as the judge:
 
-- Judge receives: the prompt, the expected answer, and the model's output
-- Judge evaluates: completeness, correctness, convention compliance, code quality
-- Judge scores on a 1-5 scale per criterion with brief justification
-- This only needs to run once per model comparison, not per-prompt during development
+- Judge receives: the category, the expected answer, and the candidate model's response
+- Judge evaluates: for each expected item, rate as correct/partial/incorrect/missing
+- Judge outputs: JSON with per-item ratings, total score, and one-sentence summary
+- The judge runs on the laptop (Apple Silicon / MLX), separate from the candidate model on carlpc
+
+The judge prompt is category-specific — edge cases are evaluated differently from roxygen2 docs. The key distinction the judge makes that keyword matching can't: **"mentioned the right thing but got it wrong"** (partial) vs **"mentioned the right thing and got it right"** (correct).
+
+Judge scoring: correct=1, partial=0.5, incorrect=0, missing=0. The judge score replaces the keyword score as the primary metric when the judge is enabled.
+
+**Why a small model can judge but not generate:** The judge has the expected answer as a reference. It's doing reading comprehension (compare two texts, spot differences), not code generation (write correct code from scratch). A 2B model can reliably tell that "the function stops when mod_type is NULL" is wrong when the expected answer says "returns all valid mod_types" — it just needs to compare, not create.
 
 ### Quantitative Metrics Per Category
 
@@ -196,7 +202,11 @@ Each prompt is tagged as **easy**, **medium**, or **hard**. This lets us answer:
 
 ```bash
 # Run all benchmarks against a model (both prompt variants)
-python runner.py --model qwen2.5-coder:7b
+python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434
+
+# Run with LLM judge (Gemma 4 E2B on MLX, laptop)
+python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434 \
+    --judge --judge-model mlx-community/gemma-4-e2b-it-4bit --judge-host http://localhost:8000
 
 # Run only sparse prompts (faster, tests inference without hand-holding)
 python runner.py --model qwen2.5-coder:7b --variant sparse
