@@ -98,25 +98,31 @@ Automated checks flag presence/absence; human confirms significance.
 
 ### Tier 3: LLM-as-Judge (automated, small local model)
 
-For subjective quality assessment. Uses a small local model (e.g., Gemma 4 E2B on MLX) as the judge:
+For subjective quality assessment. Uses a local model (Gemma 4 E4B on MLX) as the judge:
 
 - Judge receives: the category, the expected answer, and the candidate model's response
 - Judge evaluates: for each expected item, rate as correct/partial/incorrect/missing
-- Judge outputs: JSON with per-item ratings, total score, and one-sentence summary
+- Judge outputs: JSON array of `{item, rating, reason}` objects — score is computed programmatically from ratings, never trusted from the judge
 - The judge runs on the laptop (Apple Silicon / MLX), separate from the candidate model on carlpc
+- Candidate and judge run in a producer-consumer pipeline — as each candidate call finishes, it's queued for judging, so neither machine sits idle
 
 The judge prompt is category-specific — edge cases are evaluated differently from roxygen2 docs. The key distinction the judge makes that keyword matching can't: **"mentioned the right thing but got it wrong"** (partial) vs **"mentioned the right thing and got it right"** (correct).
 
-Judge scoring: correct=1, partial=0.5, incorrect=0, missing=0. The judge score replaces the keyword score as the primary metric when the judge is enabled.
+Judge scoring: correct=1, partial=0.5, incorrect=0, missing=0. The judge score replaces the keyword score as the primary metric when the judge is enabled. Score is always recomputed from item ratings — the judge's arithmetic is not trusted.
 
-**Why a small model can judge but not generate:** The judge has the expected answer as a reference. It's doing reading comprehension (compare two texts, spot differences), not code generation (write correct code from scratch). A 2B model can reliably tell that "the function stops when mod_type is NULL" is wrong when the expected answer says "returns all valid mod_types" — it just needs to compare, not create.
+**Why a small model can judge but not generate:** The judge has the expected answer as a reference. It's doing reading comprehension (compare two texts, spot differences), not code generation (write correct code from scratch). A 4B model can reliably tell that "the function stops when mod_type is NULL" is wrong when the expected answer says "returns all valid mod_types" — it just needs to compare, not create.
+
+**Judge hardening (round 1→2):** Three fixes from spot-checking round 1 results:
+1. Verification instruction: "Before rating any item, verify that it actually appears in the model response text." Prevents the judge from hallucinating tags that aren't there.
+2. Simpler output format: JSON array of `{item, rating, reason}` instead of object with score/total/summary. The judge was computing scores incorrectly — now computed programmatically.
+3. Tighter partial vs incorrect: Wrong package attribution (e.g., mcols→dplyr) is "incorrect", not "partial". Dependencies category only evaluates external packages, not base R functions (to avoid inflating the grade).
 
 ### Quantitative Metrics Per Category
 
 | Category | Primary Metric | Scoring Method |
 |---|---|---|
 | Edge case extraction | Recall (fraction of edge cases found) | Keyword matching + LLM judge |
-| Dependency identification | Precision + Recall (correct packages, no extras) | Keyword matching |
+| Dependency identification | Precision + Recall (correct packages, no extras) | Keyword matching + LLM judge |
 | Roxygen2 documentation | Convention compliance score | Execution (`devtools::document()`) + keyword matching + LLM judge |
 | Pattern-matching code | Execution + correctness | Run in R, check output |
 | Test writing | Execution + coverage | Run tests against real function, count passes |
@@ -204,9 +210,9 @@ Each prompt is tagged as **easy**, **medium**, or **hard**. This lets us answer:
 # Run all benchmarks against a model (both prompt variants)
 python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434
 
-# Run with LLM judge (Gemma 4 E2B on MLX, laptop)
+# Run with LLM judge (Gemma 4 E4B on MLX, laptop)
 python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434 \
-    --judge --judge-model mlx-community/gemma-4-e2b-it-4bit --judge-host http://localhost:8000
+    --judge --judge-model gemma-4-E4B-it-MLX-4bit --judge-host http://localhost:8000
 
 # Run only sparse prompts (faster, tests inference without hand-holding)
 python runner.py --model qwen2.5-coder:7b --variant sparse
@@ -233,26 +239,42 @@ python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434
 {
   "model": "qwen2.5-coder:7b",
   "timestamp": "2026-05-20T12:00:00Z",
+  "judge_enabled": true,
+  "judge_model": "gemma-4-E4B-it-MLX-4bit",
   "categories": {
     "edge-cases": {
-      "score": 2.5,
-      "max_score": 3,
+      "score": 26.0,
+      "max_score": 32,
+      "keyword_score": 22,
+      "keyword_max": 32,
+      "judge_score": 26.0,
+      "judge_max": 32,
       "prompts": [
         {
           "id": "edge-001",
-          "score": 2.5,
+          "variant": "sparse",
+          "keyword_score": 3,
+          "keyword_max": 3,
+          "judge_score": 3.0,
+          "judge_max": 3,
+          "score": 3.0,
           "max_score": 3,
           "response": "...",
-          "keywords_found": ["NULL", "length", "stop"],
-          "keywords_missing": [],
-          "execution": null,
-          "notes": "Identified all 3 edge cases but description of NULL case was imprecise"
+          "keyword_scoring": {"found": [...], "missing": [...]},
+          "judge_scoring": {
+            "items": [
+              {"item": "mod_type is NULL → returns all valid mod_types", "rating": "correct", "reason": "..."},
+              {"item": "length(mod_type) != 1 → stops with error", "rating": "correct", "reason": "..."},
+              {"item": "mod_type not in valid → stops with error", "rating": "correct", "reason": "..."}
+            ],
+            "score": 3.0,
+            "total": 3
+          }
         }
       ]
     }
   },
-  "composite_score": 0.72,
-  "composite_max": 1.0
+  "composite_score": 0.667
 }
 ```
 
