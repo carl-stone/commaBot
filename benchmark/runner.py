@@ -313,7 +313,7 @@ Model response:
 
 {instructions}
 
-For each expected item, first verify it appears in the model response, then rate it.
+For each expected item, first verify it appears in the model response, then rate it. You MUST create an item for EVERY expected item in the expected answer. If the model does not mention an expected item, rate it "missing" — do not skip it.
 
 Output a JSON array of objects with this exact format:
 [
