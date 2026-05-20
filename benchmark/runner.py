@@ -43,13 +43,12 @@ def ollama_chat(model: str, prompt: str, host: str, timeout: int = 120) -> dict:
     try:
         with urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
-    except URLError as e:
-        print(f"  ERROR: Failed to connect to Ollama at {url}: {e}", file=sys.stderr)
-        sys.exit(1)
+    except Exception as e:
+        return {"error": str(e), "timed_out": isinstance(e, TimeoutError)}
 
 
 def openai_chat(model: str, system: str, user: str, host: str,
-                api_key: str = None, timeout: int = 120) -> dict:
+                api_key: str = None, timeout: int = 300) -> dict:
     """Send a chat prompt to an OpenAI-compatible API (mlx-lm server, etc.)."""
     url = f"{host.rstrip('/')}/v1/chat/completions"
     payload = json.dumps({
@@ -70,9 +69,8 @@ def openai_chat(model: str, system: str, user: str, host: str,
     try:
         with urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
-    except URLError as e:
-        print(f"  ERROR: Failed to connect to judge at {url}: {e}", file=sys.stderr)
-        sys.exit(1)
+    except Exception as e:
+        return {"error": str(e), "timed_out": isinstance(e, TimeoutError)}
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +417,12 @@ def judge_score(category: str, expected: dict, model_response: str,
     resp = openai_chat(judge_model, JUDGE_SYSTEM, judge_prompt, judge_host,
                        api_key=judge_api_key, timeout=timeout)
 
+    # Handle API errors (timeout, connection failure)
+    if "error" in resp:
+        err_type = "TIMEOUT" if resp.get("timed_out") else "ERROR"
+        return {"items": [], "score": 0, "total": 0,
+                "summary": f"Judge {err_type}: {resp['error'][:100]}", "parse_error": True}
+
     # Extract response text from OpenAI-compatible format
     choices = resp.get("choices", [])
     if not choices:
@@ -461,7 +465,7 @@ def load_prompts(category: str = None) -> list[dict]:
 
 
 def run_benchmark(model: str, host: str, category: str = None,
-                  exec_test: bool = False, timeout: int = 120,
+                  exec_test: bool = False, timeout: int = 300,
                   prompt_variant: str = "both",
                   use_judge: bool = False,
                   judge_model: str = None,
@@ -543,6 +547,15 @@ def run_benchmark(model: str, host: str, category: str = None,
                 judge_api_key=judge_api_key,
                 timeout=timeout
             )
+
+            # Handle judge errors (timeout, connection failure)
+            if judge_result.get("parse_error") and "Failed to parse" in judge_result.get("summary", ""):
+                # Parse errors are handled by parse_judge_response — keep the result
+                pass
+            elif judge_result.get("score") == 0 and judge_result.get("total") == 0 and not judge_result.get("items"):
+                # Judge returned empty — check if it was an API error
+                pass
+
             judge_score_val = judge_result.get("score", 0)
             judge_max = judge_result.get("total", 0)
 
@@ -589,6 +602,33 @@ def run_benchmark(model: str, host: str, category: str = None,
         t0 = time.time()
         resp = ollama_chat(model, task["prompt_text"], host, timeout=timeout)
         elapsed = time.time() - t0
+
+        # Handle errors (timeout, connection failure)
+        if "error" in resp:
+            err_msg = resp["error"]
+            err_type = "TIMEOUT" if resp.get("timed_out") else "ERROR"
+            print(f"    {err_type}: {err_msg[:80]}", file=sys.stderr)
+            prompt_result = {
+                "id": task["pid"],
+                "cat": task["cat"],
+                "variant": task["variant_name"],
+                "difficulty": task["difficulty"],
+                "prompt_tokens": 0,
+                "keyword_score": 0,
+                "keyword_max": 0,
+                "judge_score": None,
+                "judge_max": None,
+                "score": 0,
+                "max_score": 0,
+                "response": "",
+                "elapsed_seconds": round(elapsed, 2),
+                "tokens_per_sec": 0,
+                "keyword_scoring": {"found": [], "missing": []},
+                "judge_scoring": None,
+                "error": err_msg,
+            }
+            completed_results.append(prompt_result)
+            continue
 
         content = resp.get("message", {}).get("content", "")
         eval_count = resp.get("eval_count", 0)
@@ -770,8 +810,8 @@ def main():
                         help="Ollama API endpoint (default: http://localhost:11434)")
     parser.add_argument("--exec", action="store_true",
                         help="Enable execution testing (requires R environment)")
-    parser.add_argument("--timeout", type=int, default=120,
-                        help="Timeout per request in seconds (default: 120)")
+    parser.add_argument("--timeout", type=int, default=300,
+                        help="Timeout per request in seconds (default: 300)")
     parser.add_argument("--no-save", action="store_true",
                         help="Don't save results to file")
     parser.add_argument("--variant", choices=["sparse", "detailed", "both"],
