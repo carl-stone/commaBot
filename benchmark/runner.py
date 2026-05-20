@@ -17,9 +17,11 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from queue import Queue
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
@@ -467,10 +469,14 @@ def run_benchmark(model: str, host: str, category: str = None,
                   judge_api_key: str = None) -> dict:
     """Run the benchmark for a single model.
 
+    Uses a producer-consumer pipeline: candidate calls run sequentially,
+    and as each completes, it's queued for judging. The judge runs in a
+    separate thread, so neither machine sits idle waiting for the other.
+
     Args:
         prompt_variant: "sparse", "detailed", or "both" (runs each prompt twice)
         use_judge: Whether to use LLM-as-judge scoring
-        judge_model: Model name for the judge (e.g., mlx-community/gemma-4-e2b-it-4bit)
+        judge_model: Model name for the judge (e.g., gemma-4-E4B-it-MLX-4bit)
         judge_host: Host for the judge API (OpenAI-compatible)
         judge_api_key: API key for the judge server (if required)
     """
@@ -493,63 +499,65 @@ def run_benchmark(model: str, host: str, category: str = None,
     else:
         variants = [prompt_variant]
 
+    # Build the list of all tasks (prompt + variant combinations)
+    tasks = []
     for prompt in prompts:
         pid = prompt["id"]
         cat = prompt["category"]
         difficulty = prompt.get("difficulty", "unknown")
 
-        # Get prompt text(s)
         if "prompts" in prompt:
             prompt_texts = {v: prompt["prompts"][v] for v in variants if v in prompt["prompts"]}
         else:
             prompt_texts = {"legacy": prompt["prompt"]}
 
         for variant_name, prompt_text in prompt_texts.items():
-            label = f"{pid}/{variant_name}" if len(prompt_texts) > 1 else pid
-            print(f"  [{label}] ({difficulty}) {prompt_text[:60]}...")
+            tasks.append({
+                "pid": pid,
+                "cat": cat,
+                "difficulty": difficulty,
+                "variant_name": variant_name,
+                "prompt_text": prompt_text,
+                "prompt": prompt,
+            })
 
-            # Send to candidate model (Ollama)
-            t0 = time.time()
-            resp = ollama_chat(model, prompt_text, host, timeout=timeout)
-            elapsed = time.time() - t0
+    # Results storage (thread-safe via lock)
+    results_lock = threading.Lock()
+    completed_results = []
+    judge_queue = Queue()
 
-            content = resp.get("message", {}).get("content", "")
-            eval_count = resp.get("eval_count", 0)
-            prompt_eval_count = resp.get("prompt_eval_count", 0)
-            eval_duration = resp.get("eval_duration", 0)
-            tokens_per_sec = eval_count / (eval_duration / 1e9) if eval_duration > 0 else 0
+    # Judge worker thread
+    def judge_worker():
+        while True:
+            item = judge_queue.get()
+            if item is None:  # Sentinel — done
+                judge_queue.task_done()
+                break
 
-            # Keyword scoring (Tier 2)
-            scorer = KEYWORD_SCORERS.get(cat, score_keywords)
-            kw_result = scorer(content, prompt.get("expected", {}))
-            kw_score, kw_max = compute_keyword_score(cat, kw_result, prompt)
+            task, content, kw_score, kw_max, kw_result, elapsed, tokens_per_sec, prompt_eval_count = item
 
-            # Judge scoring (Tier 3) — optional
-            judge_result = None
-            judge_score_val = None
-            judge_max = None
-            if use_judge and judge_model:
-                print(f"    Judging...", end="", flush=True)
-                judge_result = judge_score(cat, prompt.get("expected", {}), content,
-                                          judge_model, judge_host,
-                                          judge_api_key=judge_api_key,
-                                          timeout=timeout)
-                judge_score_val = judge_result.get("score", 0)
-                judge_max = judge_result.get("total", 0)
-                print(f" {judge_score_val}/{judge_max}")
+            # Judge scoring
+            judge_result = judge_score(
+                task["cat"], task["prompt"].get("expected", {}), content,
+                judge_model, judge_host,
+                judge_api_key=judge_api_key,
+                timeout=timeout
+            )
+            judge_score_val = judge_result.get("score", 0)
+            judge_max = judge_result.get("total", 0)
 
             prompt_result = {
-                "id": pid,
-                "variant": variant_name,
-                "difficulty": difficulty,
+                "id": task["pid"],
+                "cat": task["cat"],
+                "variant": task["variant_name"],
+                "difficulty": task["difficulty"],
                 "prompt_tokens": prompt_eval_count,
                 "keyword_score": kw_score,
                 "keyword_max": kw_max,
                 "judge_score": judge_score_val,
                 "judge_max": judge_max,
-                # Use judge score if available, otherwise keyword score
-                "score": judge_score_val if judge_score_val is not None else kw_score,
-                "max_score": judge_max if judge_max is not None else kw_max,
+                "score": judge_score_val,
+                "max_score": judge_max,
                 "response": content,
                 "elapsed_seconds": round(elapsed, 2),
                 "tokens_per_sec": round(tokens_per_sec, 1),
@@ -557,61 +565,128 @@ def run_benchmark(model: str, host: str, category: str = None,
                 "judge_scoring": judge_result,
             }
 
-            # Aggregate by category
-            cat_key = cat
-            if cat_key not in results["categories"]:
-                results["categories"][cat_key] = {
-                    "prompts": [], "score": 0, "max_score": 0,
-                    "keyword_score": 0, "keyword_max": 0,
-                    "judge_score": 0, "judge_max": 0,
-                    "by_variant": {}, "by_difficulty": {},
-                }
-            results["categories"][cat_key]["prompts"].append(prompt_result)
-            results["categories"][cat_key]["score"] += prompt_result["score"]
-            results["categories"][cat_key]["max_score"] += prompt_result["max_score"]
-            results["categories"][cat_key]["keyword_score"] += kw_score
-            results["categories"][cat_key]["keyword_max"] += kw_max
-            if judge_score_val is not None:
-                results["categories"][cat_key]["judge_score"] += judge_score_val
-                results["categories"][cat_key]["judge_max"] += judge_max
+            with results_lock:
+                completed_results.append(prompt_result)
 
-            # Track by variant
-            if variant_name not in results["categories"][cat_key]["by_variant"]:
-                results["categories"][cat_key]["by_variant"][variant_name] = {
-                    "score": 0, "max_score": 0,
-                    "keyword_score": 0, "keyword_max": 0,
-                    "judge_score": 0, "judge_max": 0,
-                }
-            bv = results["categories"][cat_key]["by_variant"][variant_name]
-            bv["score"] += prompt_result["score"]
-            bv["max_score"] += prompt_result["max_score"]
-            bv["keyword_score"] += kw_score
-            bv["keyword_max"] += kw_max
-            if judge_score_val is not None:
-                bv["judge_score"] += judge_score_val
-                bv["judge_max"] += judge_max
+            # Print judge result
+            label = f"{task['pid']}/{task['variant_name']}" if len(variants) > 1 else task['pid']
+            print(f"    [{label}] judge={judge_score_val}/{judge_max}")
 
-            # Track by difficulty
-            if difficulty not in results["categories"][cat_key]["by_difficulty"]:
-                results["categories"][cat_key]["by_difficulty"][difficulty] = {
-                    "score": 0, "max_score": 0,
-                    "keyword_score": 0, "keyword_max": 0,
-                    "judge_score": 0, "judge_max": 0,
-                }
-            bd = results["categories"][cat_key]["by_difficulty"][difficulty]
-            bd["score"] += prompt_result["score"]
-            bd["max_score"] += prompt_result["max_score"]
-            bd["keyword_score"] += kw_score
-            bd["keyword_max"] += kw_max
-            if judge_score_val is not None:
-                bd["judge_score"] += judge_score_val
-                bd["judge_max"] += judge_max
+            judge_queue.task_done()
 
-            # Print inline result
-            score_str = f"kw={kw_score}/{kw_max}"
-            if judge_score_val is not None:
-                score_str += f" judge={judge_score_val}/{judge_max}"
-            print(f"    {score_str} ({elapsed:.1f}s, {tokens_per_sec:.0f} tok/s, {prompt_eval_count} prompt tok)")
+    # Start judge thread if needed
+    judge_thread = None
+    if use_judge and judge_model:
+        judge_thread = threading.Thread(target=judge_worker)
+        judge_thread.start()
+
+    # Run candidate calls (main thread)
+    for task in tasks:
+        label = f"{task['pid']}/{task['variant_name']}" if len(variants) > 1 else task['pid']
+        print(f"  [{label}] ({task['difficulty']}) {task['prompt_text'][:60]}...")
+
+        # Send to candidate model (Ollama)
+        t0 = time.time()
+        resp = ollama_chat(model, task["prompt_text"], host, timeout=timeout)
+        elapsed = time.time() - t0
+
+        content = resp.get("message", {}).get("content", "")
+        eval_count = resp.get("eval_count", 0)
+        prompt_eval_count = resp.get("prompt_eval_count", 0)
+        eval_duration = resp.get("eval_duration", 0)
+        tokens_per_sec = eval_count / (eval_duration / 1e9) if eval_duration > 0 else 0
+
+        # Keyword scoring (Tier 2)
+        scorer = KEYWORD_SCORERS.get(task["cat"], score_keywords)
+        kw_result = scorer(content, task["prompt"].get("expected", {}))
+        kw_score, kw_max = compute_keyword_score(task["cat"], kw_result, task["prompt"])
+
+        print(f"    kw={kw_score}/{kw_max} ({elapsed:.1f}s, {tokens_per_sec:.0f} tok/s)")
+
+        if use_judge and judge_model:
+            # Queue for judging
+            judge_queue.put((task, content, kw_score, kw_max, kw_result, elapsed, tokens_per_sec, prompt_eval_count))
+        else:
+            # No judge — store result directly
+            prompt_result = {
+                "id": task["pid"],
+                "cat": task["cat"],
+                "variant": task["variant_name"],
+                "difficulty": task["difficulty"],
+                "prompt_tokens": prompt_eval_count,
+                "keyword_score": kw_score,
+                "keyword_max": kw_max,
+                "judge_score": None,
+                "judge_max": None,
+                "score": kw_score,
+                "max_score": kw_max,
+                "response": content,
+                "elapsed_seconds": round(elapsed, 2),
+                "tokens_per_sec": round(tokens_per_sec, 1),
+                "keyword_scoring": kw_result,
+                "judge_scoring": None,
+            }
+            completed_results.append(prompt_result)
+
+    # Wait for judge to finish
+    if judge_thread:
+        judge_queue.put(None)  # Sentinel
+        judge_thread.join()
+
+    # Aggregate results by category
+    for prompt_result in completed_results:
+        cat_key = prompt_result["cat"]
+
+        if cat_key not in results["categories"]:
+            results["categories"][cat_key] = {
+                "prompts": [], "score": 0, "max_score": 0,
+                "keyword_score": 0, "keyword_max": 0,
+                "judge_score": 0, "judge_max": 0,
+                "by_variant": {}, "by_difficulty": {},
+            }
+
+        results["categories"][cat_key]["prompts"].append(prompt_result)
+        results["categories"][cat_key]["score"] += prompt_result["score"]
+        results["categories"][cat_key]["max_score"] += prompt_result["max_score"]
+        results["categories"][cat_key]["keyword_score"] += prompt_result["keyword_score"]
+        results["categories"][cat_key]["keyword_max"] += prompt_result["keyword_max"]
+        if prompt_result["judge_score"] is not None:
+            results["categories"][cat_key]["judge_score"] += prompt_result["judge_score"]
+            results["categories"][cat_key]["judge_max"] += prompt_result["judge_max"]
+
+        # Track by variant
+        variant_name = prompt_result["variant"]
+        if variant_name not in results["categories"][cat_key]["by_variant"]:
+            results["categories"][cat_key]["by_variant"][variant_name] = {
+                "score": 0, "max_score": 0,
+                "keyword_score": 0, "keyword_max": 0,
+                "judge_score": 0, "judge_max": 0,
+            }
+        bv = results["categories"][cat_key]["by_variant"][variant_name]
+        bv["score"] += prompt_result["score"]
+        bv["max_score"] += prompt_result["max_score"]
+        bv["keyword_score"] += prompt_result["keyword_score"]
+        bv["keyword_max"] += prompt_result["keyword_max"]
+        if prompt_result["judge_score"] is not None:
+            bv["judge_score"] += prompt_result["judge_score"]
+            bv["judge_max"] += prompt_result["judge_max"]
+
+        # Track by difficulty
+        difficulty = prompt_result["difficulty"]
+        if difficulty not in results["categories"][cat_key]["by_difficulty"]:
+            results["categories"][cat_key]["by_difficulty"][difficulty] = {
+                "score": 0, "max_score": 0,
+                "keyword_score": 0, "keyword_max": 0,
+                "judge_score": 0, "judge_max": 0,
+            }
+        bd = results["categories"][cat_key]["by_difficulty"][difficulty]
+        bd["score"] += prompt_result["score"]
+        bd["max_score"] += prompt_result["max_score"]
+        bd["keyword_score"] += prompt_result["keyword_score"]
+        bd["keyword_max"] += prompt_result["keyword_max"]
+        if prompt_result["judge_score"] is not None:
+            bd["judge_score"] += prompt_result["judge_score"]
+            bd["judge_max"] += prompt_result["judge_max"]
 
     # Calculate composite score
     total_weighted = 0
