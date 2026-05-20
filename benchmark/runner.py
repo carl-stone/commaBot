@@ -202,17 +202,40 @@ JUDGE_SYSTEM = """You are an expert evaluator for R/Bioconductor programming tas
 
 def build_judge_prompt(category: str, expected: dict, model_response: str) -> str:
     """Build the judge prompt for a given category and expected answer."""
-    # Serialize the expected answer for the judge
-    expected_str = json.dumps(expected, indent=2, ensure_ascii=False)
+    # Strip metadata the judge doesn't need — only send the actual expected items
+    judge_expected = {}
+    if "edge_cases" in expected:
+        judge_expected["edge_cases"] = expected["edge_cases"]
+    if "return_paths" in expected:
+        judge_expected["return_paths"] = expected["return_paths"]
+    if "packages" in expected:
+        judge_expected["packages"] = expected["packages"]
+    if "required_tags" in expected:
+        judge_expected["required_tags"] = expected["required_tags"]
+    if "forbidden_patterns" in expected:
+        judge_expected["forbidden_patterns"] = expected["forbidden_patterns"]
+    if "pattern_elements" in expected:
+        judge_expected["pattern_elements"] = expected["pattern_elements"]
+    if "test_cases" in expected:
+        judge_expected["test_cases"] = expected["test_cases"]
+    if not judge_expected:
+        judge_expected = expected  # fallback
+
+    expected_str = json.dumps(judge_expected, indent=2, ensure_ascii=False)
+
+    # Truncate model response if very long (judge doesn't need 500 lines of code)
+    max_response_chars = 2000
+    if len(model_response) > max_response_chars:
+        model_response = model_response[:max_response_chars] + "\n... [truncated]"
 
     # Category-specific evaluation instructions
     category_instructions = {
-        "edge-cases": "For each edge case in the expected answer, determine if the model correctly identified it AND correctly described what the function does. An edge case that is mentioned but with the wrong action (e.g., says 'stops' when it should 'returns') is 'partial' at best.",
-        "dependencies": "For each package/function in the expected answer, determine if the model correctly identified it. A function attributed to the wrong package is 'incorrect'. A function listed as external when it's base R is 'incorrect'.",
-        "roxygen2": "For each required tag, determine if the model included it correctly. Tags that are missing are 'missing'. Tags present but with wrong content are 'partial'. Forbidden patterns found in the response should be noted.",
+        "edge-cases": "For each edge case in the expected answer, determine if the model correctly identified it AND correctly described what the function does. An edge case mentioned with the wrong action (e.g., says 'stops' when it should 'returns') is 'partial' at best.",
+        "dependencies": "For each package/function in the expected answer, determine if the model correctly identified it. A function attributed to the wrong package is 'incorrect'.",
+        "roxygen2": "For each required tag, determine if the model included it. Tags present but with wrong content are 'partial'. Forbidden patterns found should be noted.",
         "pattern-matching": "Evaluate whether the model correctly applied the pattern. Check each expected element: was it included? Was it correct? Was it placed in the right position?",
-        "test-writing": "For each expected test case, determine if the model wrote a test that actually tests it. A test that calls the function but doesn't assert the right thing is 'partial'. A test that doesn't exist is 'missing'.",
-        "return-values": "For each return path in the expected answer, determine if the model correctly identified it. A return path described with the wrong type or wrong value is 'incorrect'. A return path that is missing entirely is 'missing'.",
+        "test-writing": "For each expected test case, determine if the model wrote a test that actually tests it. A test that calls the function but doesn't assert the right thing is 'partial'.",
+        "return-values": "For each return path in the expected answer, determine if the model correctly identified it. A return path described with the wrong type or wrong value is 'incorrect'.",
     }
 
     instructions = category_instructions.get(category,
