@@ -46,7 +46,8 @@ def ollama_chat(model: str, prompt: str, host: str, timeout: int = 120) -> dict:
         sys.exit(1)
 
 
-def openai_chat(model: str, system: str, user: str, host: str, timeout: int = 120) -> dict:
+def openai_chat(model: str, system: str, user: str, host: str,
+                api_key: str = None, timeout: int = 120) -> dict:
     """Send a chat prompt to an OpenAI-compatible API (mlx-lm server, etc.)."""
     url = f"{host.rstrip('/')}/v1/chat/completions"
     payload = json.dumps({
@@ -59,7 +60,11 @@ def openai_chat(model: str, system: str, user: str, host: str, timeout: int = 12
         "stream": False,
     }).encode()
 
-    req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    req = Request(url, data=payload, headers=headers)
     try:
         with urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
@@ -283,11 +288,13 @@ def parse_judge_response(response_text: str) -> dict:
 
 
 def judge_score(category: str, expected: dict, model_response: str,
-                judge_model: str, judge_host: str, timeout: int = 120) -> dict:
+                judge_model: str, judge_host: str, judge_api_key: str = None,
+                timeout: int = 120) -> dict:
     """Score a response using the LLM judge."""
     judge_prompt = build_judge_prompt(category, expected, model_response)
 
-    resp = openai_chat(judge_model, JUDGE_SYSTEM, judge_prompt, judge_host, timeout=timeout)
+    resp = openai_chat(judge_model, JUDGE_SYSTEM, judge_prompt, judge_host,
+                       api_key=judge_api_key, timeout=timeout)
 
     # Extract response text from OpenAI-compatible format
     choices = resp.get("choices", [])
@@ -335,7 +342,8 @@ def run_benchmark(model: str, host: str, category: str = None,
                   prompt_variant: str = "both",
                   use_judge: bool = False,
                   judge_model: str = None,
-                  judge_host: str = "http://localhost:8000") -> dict:
+                  judge_host: str = "http://localhost:8000",
+                  judge_api_key: str = None) -> dict:
     """Run the benchmark for a single model.
 
     Args:
@@ -343,6 +351,7 @@ def run_benchmark(model: str, host: str, category: str = None,
         use_judge: Whether to use LLM-as-judge scoring
         judge_model: Model name for the judge (e.g., mlx-community/gemma-4-e2b-it-4bit)
         judge_host: Host for the judge API (OpenAI-compatible)
+        judge_api_key: API key for the judge server (if required)
     """
     prompts = load_prompts(category)
     if not prompts:
@@ -401,7 +410,9 @@ def run_benchmark(model: str, host: str, category: str = None,
             if use_judge and judge_model:
                 print(f"    Judging...", end="", flush=True)
                 judge_result = judge_score(cat, prompt.get("expected", {}), content,
-                                          judge_model, judge_host, timeout=timeout)
+                                          judge_model, judge_host,
+                                          judge_api_key=judge_api_key,
+                                          timeout=timeout)
                 judge_score_val = judge_result.get("score", 0)
                 judge_max = judge_result.get("total", 0)
                 print(f" {judge_score_val}/{judge_max}")
@@ -497,7 +508,8 @@ def run_benchmark(model: str, host: str, category: str = None,
 def compare_models(models: list[str], host: str, category: str = None,
                    timeout: int = 120, prompt_variant: str = "both",
                    use_judge: bool = False, judge_model: str = None,
-                   judge_host: str = "http://localhost:8000") -> None:
+                   judge_host: str = "http://localhost:8000",
+                   judge_api_key: str = None) -> None:
     """Run benchmarks for multiple models and compare."""
     all_results = {}
     for model in models:
@@ -507,7 +519,7 @@ def compare_models(models: list[str], host: str, category: str = None,
         results = run_benchmark(model, host, category, timeout=timeout,
                                prompt_variant=prompt_variant,
                                use_judge=use_judge, judge_model=judge_model,
-                               judge_host=judge_host)
+                               judge_host=judge_host, judge_api_key=judge_api_key)
         all_results[model] = results
 
     # Print comparison table
@@ -575,11 +587,14 @@ def main():
                         help="Judge model name (default: mlx-community/gemma-4-e2b-it-4bit)")
     parser.add_argument("--judge-host", default="http://localhost:8000",
                         help="Judge API endpoint (default: http://localhost:8000)")
+    parser.add_argument("--judge-api-key", default=os.environ.get("MLX_API_KEY"),
+                        help="Judge API key (or set MLX_API_KEY env var)")
     args = parser.parse_args()
 
     if args.compare:
         compare_models(args.compare, args.host, args.category, args.timeout,
-                      args.variant, args.judge, args.judge_model, args.judge_host)
+                      args.variant, args.judge, args.judge_model,
+                      args.judge_host, args.judge_api_key)
     elif args.model:
         judge_str = f", judge={args.judge_model}" if args.judge else ""
         print(f"Running benchmark: model={args.model}, host={args.host}, variant={args.variant}{judge_str}")
@@ -588,7 +603,8 @@ def main():
                                prompt_variant=args.variant,
                                use_judge=args.judge,
                                judge_model=args.judge_model if args.judge else None,
-                               judge_host=args.judge_host)
+                               judge_host=args.judge_host,
+                               judge_api_key=args.judge_api_key)
 
         # Print summary
         print(f"\n{'='*60}")
