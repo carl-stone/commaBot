@@ -202,7 +202,7 @@ JUDGE_SYSTEM = """You are an expert evaluator for R/Bioconductor programming tas
 
 def build_judge_prompt(category: str, expected: dict, model_response: str) -> str:
     """Build the judge prompt for a given category and expected answer."""
-    # Strip metadata the judge doesn't need — only send the actual expected items
+    # Build the expected answer block — include scoring notes for evaluation criteria
     judge_expected = {}
     if "edge_cases" in expected:
         judge_expected["edge_cases"] = expected["edge_cases"]
@@ -210,6 +210,8 @@ def build_judge_prompt(category: str, expected: dict, model_response: str) -> st
         judge_expected["return_paths"] = expected["return_paths"]
     if "packages" in expected:
         judge_expected["packages"] = expected["packages"]
+    if "not_packages" in expected:
+        judge_expected["not_packages"] = expected["not_packages"]
     if "required_tags" in expected:
         judge_expected["required_tags"] = expected["required_tags"]
     if "forbidden_patterns" in expected:
@@ -218,28 +220,80 @@ def build_judge_prompt(category: str, expected: dict, model_response: str) -> st
         judge_expected["pattern_elements"] = expected["pattern_elements"]
     if "test_cases" in expected:
         judge_expected["test_cases"] = expected["test_cases"]
+    if "scoring_notes" in expected:
+        judge_expected["scoring_notes"] = expected["scoring_notes"]
     if not judge_expected:
         judge_expected = expected  # fallback
 
     expected_str = json.dumps(judge_expected, indent=2, ensure_ascii=False)
 
-    # Truncate model response if very long (judge doesn't need 500 lines of code)
-    max_response_chars = 2000
-    if len(model_response) > max_response_chars:
-        model_response = model_response[:max_response_chars] + "\n... [truncated]"
-
-    # Category-specific evaluation instructions
+    # Category-specific evaluation instructions with examples
     category_instructions = {
-        "edge-cases": "For each edge case in the expected answer, determine if the model correctly identified it AND correctly described what the function does. An edge case mentioned with the wrong action (e.g., says 'stops' when it should 'returns') is 'partial' at best.",
-        "dependencies": "For each package/function in the expected answer, determine if the model correctly identified it. A function attributed to the wrong package is 'incorrect'.",
-        "roxygen2": "For each required tag, determine if the model included it. Tags present but with wrong content are 'partial'. Forbidden patterns found should be noted.",
-        "pattern-matching": "Evaluate whether the model correctly applied the pattern. Check each expected element: was it included? Was it correct? Was it placed in the right position?",
-        "test-writing": "For each expected test case, determine if the model wrote a test that actually tests it. A test that calls the function but doesn't assert the right thing is 'partial'.",
-        "return-values": "For each return path in the expected answer, determine if the model correctly identified it. A return path described with the wrong type or wrong value is 'incorrect'.",
+        "edge-cases": """For each edge case in the expected answer, determine if the model correctly identified it AND correctly described what the function does when triggered.
+
+Ratings:
+- correct: The model identifies the edge case AND correctly describes the action (e.g., "returns all valid types" not just "handles NULL")
+- partial: The model identifies the edge case but describes the action incorrectly or imprecisely (e.g., says "stops" when it should "returns", or describes the condition vaguely)
+- incorrect: The model identifies something as an edge case but gets the condition or action wrong
+- missing: The model does not mention this edge case at all
+
+Important: Distinguish between stop() (error), warning() (warning + continue), message() (informational), and return() (early return). These are different behaviors in R — saying "stops" when the function "returns" is a meaningful error, not a minor imprecision.""",
+
+        "dependencies": """For each package/function pair in the expected answer, determine if the model correctly identified it.
+
+Ratings:
+- correct: The model lists the function AND attributes it to the correct package
+- partial: The model lists the function but attributes it to the wrong package or is vague about the package
+- incorrect: The model lists a function as external when it's base R, or attributes a base R function to an external package
+- missing: The model does not mention this function at all
+
+Important: In Bioconductor, functions like mcols(), rowRanges(), seqnames(), strand() are NOT base R — they come from GenomicRanges and SummarizedExperiment. A model that treats these as base R does not understand the Bioconductor ecosystem.""",
+
+        "roxygen2": """For each required tag in the expected answer, determine if the model included it correctly.
+
+Ratings:
+- correct: The tag is present and correctly used (e.g., @docType methods for S4, @rdname matches the generic name)
+- partial: The tag is present but with incorrect content (e.g., @rdname with wrong name, @examples with invalid mod_type values)
+- incorrect: The tag is present but fundamentally wrong (e.g., @docType methods on a plain function)
+- missing: The tag is not present at all
+
+Important: S4 methods require @docType methods and @rdname. Plain functions should NOT have these tags. Check for forbidden patterns — if the model uses invalid mod_type values like "mC" instead of "6mA" or "5mC", that's a partial at best.""",
+
+        "pattern-matching": """For each expected pattern element, determine if the model correctly applied it.
+
+Ratings:
+- correct: The element is present and correctly applied (e.g., mod_type = NULL in the right position, .validateModType() call with return value captured)
+- partial: The element is present but with minor issues (e.g., mod_type added but in the wrong position, or .validateModType() called but return value not captured)
+- incorrect: The element is present but fundamentally wrong (e.g., wrong function name, wrong default value)
+- missing: The element is not present at all""",
+
+        "test-writing": """For each expected test case, determine if the model wrote a test that actually tests it.
+
+Ratings:
+- correct: The test exists and tests the right thing with proper assertions (e.g., expect_error for input validation, expect_s3_class for return type)
+- partial: The test exists but has weak assertions (e.g., calls the function but doesn't check the result, or checks the wrong thing)
+- incorrect: The test exists but would fail or test the wrong thing
+- missing: No test for this case exists
+
+Important: A test that just calls the function without assertions is a smoke test, not a real test. Check that the model uses the right test data (comma_example_data) and the right assertions (expect_error, expect_s3_class, expect_equal, etc.).""",
+
+        "return-values": """For each return path in the expected answer, determine if the model correctly identified it.
+
+Ratings:
+- correct: The model identifies the return path AND correctly describes the return type and value
+- partial: The model identifies the return path but gets the type or value slightly wrong (e.g., says "returns character" when it returns "character vector")
+- incorrect: The model identifies a return path but describes it incorrectly (e.g., says "returns data frame" when it returns a commaData object)
+- missing: The model does not mention this return path at all
+
+Important: stop() is NOT a return — it raises an error. invisible() means the value is returned but not printed. The distinction between returning a character vector vs a single character string matters for type safety.""",
     }
 
     instructions = category_instructions.get(category,
-        "For each item in the expected answer, determine if the model's response correctly addresses it.")
+        "For each item in the expected answer, determine if the model's response correctly addresses it.\n\nRatings:\n- correct: The model correctly identifies and describes this item\n- partial: The model mentions this item but gets some details wrong\n- incorrect: The model mentions this item but gets it factually wrong\n- missing: The model does not mention this item at all")
+
+    scoring_notes = expected.get("scoring_notes", "")
+    if scoring_notes:
+        instructions += f"\n\nAdditional scoring criteria: {scoring_notes}"
 
     return f"""Evaluate this model response against the expected answer.
 
@@ -253,20 +307,16 @@ Model response:
 
 {instructions}
 
-Rate each item as:
-- correct: The model correctly identifies and describes this item
-- partial: The model mentions this item but gets some details wrong
-- incorrect: The model mentions this item but gets it factually wrong
-- missing: The model does not mention this item at all
+Scoring: correct=1, partial=0.5, incorrect=0, missing=0.
 
 Output your evaluation as a JSON object with this exact format:
 {{
   "items": [
-    {{"item": "<brief description>", "rating": "correct|partial|incorrect|missing", "reason": "<one sentence>"}},
+    {{"item": "<brief description of the expected item>", "rating": "correct|partial|incorrect|missing", "reason": "<one sentence explaining why>"}},
     ...
   ],
-  "score": <number of correct items>,
-  "total": <total number of items>,
+  "score": <sum of item scores: 1 for correct, 0.5 for partial, 0 for incorrect/missing>,
+  "total": <total number of expected items>,
   "summary": "<one sentence overall assessment>"
 }}
 
