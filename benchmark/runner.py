@@ -197,7 +197,11 @@ def compute_keyword_score(cat: str, score_result: dict, prompt: dict) -> tuple[i
 # LLM Judge scoring (Tier 3)
 # ---------------------------------------------------------------------------
 
-JUDGE_SYSTEM = """You are an expert evaluator for R/Bioconductor programming tasks. You compare a model's response against the expected answer and score each item for correctness. Be strict: a response that mentions the right concept but gets details wrong is "partial", not "correct". A response that is factually wrong is "incorrect", not "partial"."""
+JUDGE_SYSTEM = """You are an expert evaluator for R/Bioconductor programming tasks. You compare a model's response against the expected answer and rate each item.
+
+CRITICAL: Before rating any item, verify that it actually appears in the model response text. Do not assume a tag, edge case, or function is present just because it is expected. If you cannot find it in the response, rate it "missing".
+
+Be strict: a response that mentions the right concept but gets details wrong is "partial", not "correct". A response that is factually wrong (e.g., attributes a function to the wrong package) is "incorrect", not "partial"."""
 
 
 def build_judge_prompt(category: str, expected: dict, model_response: str) -> str:
@@ -243,21 +247,21 @@ Important: Distinguish between stop() (error), warning() (warning + continue), m
 
 Ratings:
 - correct: The model lists the function AND attributes it to the correct package
-- partial: The model lists the function but attributes it to the wrong package or is vague about the package
-- incorrect: The model lists a function as external when it's base R, or attributes a base R function to an external package
+- partial: The model lists the function but is vague about which package it comes from (e.g., says "Bioconductor" instead of "GenomicRanges")
+- incorrect: The model lists the function but attributes it to the WRONG package (e.g., says mcols is from dplyr when it is from GenomicRanges, or says a base R function is from an external package)
 - missing: The model does not mention this function at all
 
-Important: In Bioconductor, functions like mcols(), rowRanges(), seqnames(), strand() are NOT base R — they come from GenomicRanges and SummarizedExperiment. A model that treats these as base R does not understand the Bioconductor ecosystem.""",
+Important: In Bioconductor, functions like mcols(), rowRanges(), seqnames(), strand() are NOT base R — they come from GenomicRanges and SummarizedExperiment. A model that attributes these to dplyr, tidyverse, or base R is "incorrect", not "partial".""",
 
-        "roxygen2": """For each required tag in the expected answer, determine if the model included it correctly.
+        "roxygen2": """For each required tag in the expected answer, verify the tag actually appears in the model response text, then rate it.
 
 Ratings:
-- correct: The tag is present and correctly used (e.g., @docType methods for S4, @rdname matches the generic name)
-- partial: The tag is present but with incorrect content (e.g., @rdname with wrong name, @examples with invalid mod_type values)
+- correct: The tag is present in the response AND correctly used (e.g., @docType methods for S4, @rdname matches the generic name)
+- partial: The tag is present but with incorrect content (e.g., @rdname with wrong name, @examples with invalid mod_type values, @return that doesn't list columns)
 - incorrect: The tag is present but fundamentally wrong (e.g., @docType methods on a plain function)
-- missing: The tag is not present at all
+- missing: The tag does not appear in the model response at all
 
-Important: S4 methods require @docType methods and @rdname. Plain functions should NOT have these tags. Check for forbidden patterns — if the model uses invalid mod_type values like "mC" instead of "6mA" or "5mC", that's a partial at best.""",
+Important: S4 methods require @docType methods and @rdname. Plain functions should NOT have these tags. Check for forbidden patterns — if the model uses invalid mod_type values like "mC" instead of "6mA" or "5mC", that is a partial at best. Before rating a tag as "correct" or "partial", search the response text for the exact tag string.""",
 
         "pattern-matching": """For each expected pattern element, determine if the model correctly applied it.
 
@@ -307,20 +311,15 @@ Model response:
 
 {instructions}
 
-Scoring: correct=1, partial=0.5, incorrect=0, missing=0.
+For each expected item, first verify it appears in the model response, then rate it.
 
-Output your evaluation as a JSON object with this exact format:
-{{
-  "items": [
-    {{"item": "<brief description of the expected item>", "rating": "correct|partial|incorrect|missing", "reason": "<one sentence explaining why>"}},
-    ...
-  ],
-  "score": <sum of item scores: 1 for correct, 0.5 for partial, 0 for incorrect/missing>,
-  "total": <total number of expected items>,
-  "summary": "<one sentence overall assessment>"
-}}
+Output a JSON array of objects with this exact format:
+[
+  {{"item": "<brief description of the expected item>", "rating": "correct|partial|incorrect|missing", "reason": "<one sentence>"}},
+  ...
+]
 
-Only output the JSON, nothing else."""
+Only output the JSON array, nothing else."""
 
 
 def parse_judge_response(response_text: str) -> dict:
@@ -328,51 +327,51 @@ def parse_judge_response(response_text: str) -> dict:
     text = response_text.strip()
 
     # Try to extract JSON from the response (small models may add extra text)
-    json_str = None
+    parsed = None
 
     # Try direct parse first
     try:
-        json_str = text
-        parsed = json.loads(json_str)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
-        # Try to find JSON block (between ``` or braces)
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+        # Try to find JSON block (between ``` or brackets/braces)
+        json_match = re.search(r'```(?:json)?\s*([\[\{].*?[\]\}])\s*```', text, re.DOTALL)
         if json_match:
-            json_str = json_match.group(1)
-        else:
-            # Try to find the outermost braces
-            brace_match = re.search(r'\{.*\}', text, re.DOTALL)
-            if brace_match:
-                json_str = brace_match.group(0)
-
-        if json_str:
             try:
-                parsed = json.loads(json_str)
+                parsed = json.loads(json_match.group(1))
             except json.JSONDecodeError:
-                return {
-                    "items": [], "score": 0, "total": 0,
-                    "summary": f"Failed to parse judge JSON: {text[:200]}",
-                    "parse_error": True,
-                }
-        else:
-            return {
-                "items": [], "score": 0, "total": 0,
-                "summary": f"No JSON found in judge response: {text[:200]}",
-                "parse_error": True,
-            }
+                pass
 
-    # Normalize the response format — small models may use different field names
+        if parsed is None:
+            # Try to find the outermost brackets or braces
+            bracket_match = re.search(r'[\[\{].*[\]\}]', text, re.DOTALL)
+            if bracket_match:
+                try:
+                    parsed = json.loads(bracket_match.group(0))
+                except json.JSONDecodeError:
+                    pass
+
+    if parsed is None:
+        return {
+            "items": [], "score": 0, "total": 0,
+            "summary": f"Failed to parse judge JSON: {text[:200]}",
+            "parse_error": True,
+        }
+
+    # Handle both array format (new) and object format (old)
+    if isinstance(parsed, list):
+        raw_items = parsed
+    elif isinstance(parsed, dict):
+        raw_items = parsed.get("items", [])
+        if not raw_items:
+            for key in ["edge_cases", "return_paths", "packages", "tags", "elements", "tests"]:
+                if key in parsed:
+                    raw_items = parsed[key]
+                    break
+    else:
+        raw_items = []
+
+    # Normalize items
     items = []
-
-    # The judge may return items under "items" or "edge_cases" or other category-specific keys
-    raw_items = parsed.get("items", [])
-    if not raw_items:
-        # Try category-specific keys
-        for key in ["edge_cases", "return_paths", "packages", "tags", "elements", "tests"]:
-            if key in parsed:
-                raw_items = parsed[key]
-                break
-
     for item in raw_items:
         # Normalize rating field: "rating", "score", or "status"
         rating = item.get("rating") or item.get("score") or item.get("status") or "missing"
@@ -397,23 +396,15 @@ def parse_judge_response(response_text: str) -> dict:
             "reason": reason,
         })
 
-    # Compute score from items if not provided
-    score = parsed.get("score")
-    total = parsed.get("total")
-
-    if score is None:
-        score_values = {"correct": 1, "partial": 0.5, "incorrect": 0, "missing": 0}
-        score = sum(score_values.get(i["rating"], 0) for i in items)
-    if total is None:
-        total = len(items)
-
-    summary = parsed.get("summary", "")
+    # ALWAYS compute score from items — never trust the judge's arithmetic
+    score_values = {"correct": 1, "partial": 0.5, "incorrect": 0, "missing": 0}
+    score = sum(score_values.get(i["rating"], 0) for i in items)
+    total = len(items)
 
     return {
         "items": items,
         "score": score,
         "total": total,
-        "summary": summary,
     }
 
 
@@ -713,8 +704,8 @@ def main():
                         help="Prompt variant: sparse, detailed, or both (default: both)")
     parser.add_argument("--judge", action="store_true",
                         help="Enable LLM-as-judge scoring")
-    parser.add_argument("--judge-model", default="mlx-community/gemma-4-e2b-it-4bit",
-                        help="Judge model name (default: mlx-community/gemma-4-e2b-it-4bit)")
+    parser.add_argument("--judge-model", default="gemma-4-E4B-it-MLX-4bit",
+                        help="Judge model name (default: gemma-4-E4B-it-MLX-4bit)")
     parser.add_argument("--judge-host", default="http://localhost:8000",
                         help="Judge API endpoint (default: http://localhost:8000)")
     parser.add_argument("--judge-api-key", default=os.environ.get("MLX_API_KEY"),
