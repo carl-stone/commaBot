@@ -1,0 +1,38 @@
+[
+  {
+    "id": "roxy-001",
+    "category": "roxygen2",
+    "prompt": "I have an R package with an S4 class called commaData that extends RangedSummarizedExperiment. Write a roxygen2 documentation block for this S4 method:\n\n```r\nsetMethod(\"filterResults\", \"commaData\",\n  function(object, mod_type = NULL, p_value = 0.05, effect_size = 0.1) {\n    # ... implementation ...\n  }\n)\n```\n\nThe function filters differential methylation results from a commaData object. It returns a data frame with columns: site_key, chrom, position, strand, mod_type, mod_context, p_value, effect_size, significant. The mod_type argument validates against valid mod_types in the object. Just give me the roxygen2 block, no explanation.",
+    "context": "Bioconductor package. S4 methods require @docType methods and @rdname. The package uses roxygen2 for documentation.",
+    "expected": {
+      "required_tags": ["@docType methods", "@rdname", "@export", "@param object", "@param mod_type", "@param p_value", "@param effect_size", "@return", "@examples"],
+      "forbidden_patterns": ["mod_type = \"mC\"", "mod_type = \"5mc\""],
+      "valid_mod_types": ["6mA", "5mC", "4mC"],
+      "scoring_notes": "Must include @docType methods and @rdname for S4. @export is required. @return must list the columns. @examples should use valid mod_type values (6mA, 5mC, 4mC). Deduct for missing S4 tags. Deduct for invalid mod_type values in examples."
+    },
+    "max_score": 10
+  },
+  {
+    "id": "roxy-002",
+    "category": "roxygen2",
+    "prompt": "Write a roxygen2 documentation block for this plain R function (not an S4 method):\n\n```r\nwriteBED <- function(object, file, mod_type = NULL) {\n  # ... implementation ...\n}\n```\n\nThe function exports methylation sites from a commaData object to a BED file. The file argument is a file path (character). mod_type filters which modification types to export. Returns the file path invisibly. Just give me the roxygen2 block, no explanation.",
+    "context": "Bioconductor package. This is a plain function, not an S4 method.",
+    "expected": {
+      "required_tags": ["@export", "@param object", "@param file", "@param mod_type", "@return", "@examples"],
+      "forbidden_tags": ["@docType methods"],
+      "scoring_notes": "Should NOT include @docType methods (this is a plain function). Must include @export. @return should mention invisible return. @examples should use \\dontrun{} since it writes to a file. Deduct for adding S4 tags to a non-S4 function."
+    },
+    "max_score": 8
+  },
+  {
+    "id": "roxy-003",
+    "category": "roxygen2",
+    "prompt": "Write a roxygen2 documentation block for this S4 generic and its method:\n\n```r\nsetGeneric(\"coverageDepth\", function(object, ...) standardGeneric(\"coverageDepth\"))\n\nsetMethod(\"coverageDepth\", \"commaData\",\n  function(object, mod_type = NULL, bins = 50) {\n    # ... implementation ...\n  }\n)\n```\n\nThe function computes coverage depth distribution for quality diagnostics. Returns a data frame with columns: bin, count, mod_type. The bins argument controls the number of coverage bins. Just give me the roxygen2 block for the method, no explanation.",
+    "context": "Bioconductor package. S4 generic with method for commaData.",
+    "expected": {
+      "required_tags": ["@docType methods", "@rdname", "@export", "@param object", "@param mod_type", "@param bins", "@return", "@examples"],
+      "scoring_notes": "Must include @docType methods and @rdname. The @rdname should reference the generic name (coverageDepth). @export is required. @return must list columns. This tests whether the model handles generics correctly."
+    },
+    "max_score": 10
+  }
+]

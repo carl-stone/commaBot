@@ -1,0 +1,57 @@
+[
+  {
+    "id": "edge-001",
+    "category": "edge-cases",
+    "prompt": "Read this R function and list all edge cases it handles. For each edge case, describe what condition triggers it and what the function does.\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```",
+    "context": "Internal validation helper for the comma R package. Used by all exported functions that accept a mod_type argument.",
+    "expected": {
+      "edge_cases": [
+        "mod_type is NULL → returns all valid mod_types (character vector)",
+        "length(mod_type) != 1 → stops with error message",
+        "mod_type not in valid → stops with error listing valid values"
+      ],
+      "keywords": ["NULL", "length", "%in%", "stop", "return", "valid"],
+      "scoring_notes": "Must identify all 3 edge cases. Partial credit for 2/3. Full credit requires describing what the function does for each case, not just listing the condition."
+    },
+    "max_score": 3
+  },
+  {
+    "id": "edge-002",
+    "category": "edge-cases",
+    "prompt": "Read this R function and list all edge cases it handles. For each edge case, describe what condition triggers it and what the function does.\n\n```r\nannotateSites <- function(object, annotation, motifSites = NULL,\n                          upstream = 500, downstream = 500) {\n  if (!inherits(object, \"commaData\")) {\n    stop(\"'object' must be a commaData object\")\n  }\n  if (!inherits(annotation, \"CompressedGRangesList\")) {\n    stop(\"'annotation' must be a CompressedGRangesList\")\n  }\n  if (is.null(motifSites)) {\n    message(\"No motif sites provided; skipping motif annotation\")\n  }\n  if (upstream < 0 || downstream < 0) {\n    stop(\"'upstream' and 'downstream' must be non-negative\")\n  }\n  if (length(object) == 0) {\n    warning(\"commaData object has no sites; returning empty annotations\")\n    return(.emptyAnnotation(object))\n  }\n  # ... annotation logic ...\n}\n```",
+    "context": "Exported function in the comma R package. Annotates methylation sites with genomic features.",
+    "expected": {
+      "edge_cases": [
+        "object is not commaData → stops with error",
+        "annotation is not CompressedGRangesList → stops with error",
+        "motifSites is NULL → message and skip motif annotation",
+        "upstream or downstream is negative → stops with error",
+        "object has no sites → warning and return empty annotation"
+      ],
+      "keywords": ["inherits", "commaData", "CompressedGRangesList", "NULL", "negative", "length", "empty", "warning", "stop", "message"],
+      "scoring_notes": "Must identify all 5 edge cases. Partial credit for each found. Note that motifSites=NULL is a soft edge case (message, not error) and length==0 is also soft (warning + early return)."
+    },
+    "max_score": 5
+  },
+  {
+    "id": "edge-003",
+    "category": "edge-cases",
+    "prompt": "Read this R function and list all edge cases it handles. For each edge case, describe what condition triggers it and what the function does.\n\n```r\n.circularIndex <- function(x, n) {\n  if (length(x) != 1) {\n    stop(\"'x' must be a single integer\")\n  }\n  if (!is.numeric(x)) {\n    stop(\"'x' must be numeric\")\n  }\n  if (is.na(x)) {\n    return(NA_integer_)\n  }\n  x <- as.integer(x)\n  if (x > 0 && x <= n) {\n    return(x)\n  }\n  if (x == 0 || x == n + 1) {\n    return(n)\n  }\n  if (x < 0 && abs(x) <= n) {\n    return(n + x + 1)\n  }\n  if (x > n + 1) {\n    return(1L)\n  }\n  if (x < -n) {\n    return(n)\n  }\n  x\n}\n```",
+    "context": "Internal helper for the comma R package. Implements circular indexing for slidingWindow (wrapping around chromosome ends).",
+    "expected": {
+      "edge_cases": [
+        "length(x) != 1 → stops with error",
+        "x is not numeric → stops with error",
+        "x is NA → returns NA_integer_",
+        "x in (0, n] → returns x directly",
+        "x is 0 or n+1 → returns n (boundary wrap)",
+        "x is negative with abs(x) <= n → returns n+x+1 (reverse indexing)",
+        "x > n+1 → returns 1L (wrap to start)",
+        "x < -n → returns n (wrap to end)"
+      ],
+      "keywords": ["length", "numeric", "NA", "integer", "boundary", "wrap", "circular", "negative"],
+      "scoring_notes": "8 edge cases total. This is a harder test — many branches. Partial credit proportional to cases found. The NA case and the boundary cases (0, n+1) are easy to miss."
+    },
+    "max_score": 8
+  }
+]

@@ -49,6 +49,10 @@ The agent wakes when something happens on GitHub (issue opened, PR reviewed, CI 
 │           ├── plugin.mjs                 # Letta Code channel adapter
 │           ├── accounts.json.example      # Template for account config
 │           └── routing.yaml.example       # Template for route config
+├── benchmark/
+│   ├── README.md                        # How to run benchmarks
+│   ├── runner.py                        # Sends prompts, collects & scores responses
+│   └── prompts/                         # Test case JSON files (6 categories)
 └── .gitignore
 ```
 

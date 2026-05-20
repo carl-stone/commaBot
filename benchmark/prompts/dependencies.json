@@ -1,0 +1,52 @@
+[
+  {
+    "id": "dep-001",
+    "category": "dependencies",
+    "prompt": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```",
+    "context": "Internal validation helper for the comma R package, which extends RangedSummarizedExperiment from Bioconductor.",
+    "expected": {
+      "packages": {
+        "GenomicRanges": ["mcols"],
+        "SummarizedExperiment": ["rowRanges"]
+      },
+      "not_packages": {
+        "base": ["levels", "is.null", "length", "stop", "sprintf", "paste", "%in%"]
+      },
+      "scoring_notes": "Must identify mcols (GenomicRanges) and rowRanges (SummarizedExperiment). Common mistake: treating these as base R. Deduct for listing base R functions as external packages."
+    },
+    "max_score": 4
+  },
+  {
+    "id": "dep-002",
+    "category": "dependencies",
+    "prompt": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\n```r\nsiteInfo <- function(object) {\n  gr <- rowRanges(object)\n  df <- data.frame(\n    chrom = as.character(seqnames(gr)),\n    position = start(gr),\n    strand = as.character(strand(gr)),\n    stringsAsFactors = FALSE\n  )\n  mc <- mcols(gr)\n  site_key <- paste0(\n    df$chrom, \":\", df$position, \":\", df$strand, \":\",\n    mc$mod_type, \":\", mc$motif\n  )\n  cbind(df, site_key = site_key, mc)\n}\n```",
+    "context": "Accessor function for the comma R package. Reconstructs a flat DataFrame from a commaData object (which extends RangedSummarizedExperiment).",
+    "expected": {
+      "packages": {
+        "GenomicRanges": ["mcols", "seqnames", "strand", "start"],
+        "SummarizedExperiment": ["rowRanges"]
+      },
+      "not_packages": {
+        "base": ["data.frame", "as.character", "paste0", "cbind"]
+      },
+      "scoring_notes": "Must identify GenomicRanges (mcols, seqnames, strand, start) and SummarizedExperiment (rowRanges). seqnames and strand come from GenomicRanges, not base R. start() is an IRanges accessor re-exported by GenomicRanges."
+    },
+    "max_score": 6
+  },
+  {
+    "id": "dep-003",
+    "category": "dependencies",
+    "prompt": "What external R packages does this function call? For each, list the function name and the package it comes from. Do not list base R functions.\n\n```r\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  object <- .validateModType(mod_type, object)\n  if (min_coverage < 1) {\n    stop(\"'min_coverage' must be >= 1\")\n  }\n  gr <- rowRanges(object)\n  mc <- mcols(gr)\n  assays <- assay(object)\n  meth <- assay(object, \"methylation\")\n  cov <- assay(object, \"coverage\")\n  low_cov <- rowSums(cov >= min_coverage) == ncol(object)\n  if (method == \"beta-binomial\") {\n    res <- .diffMethylBetaBinomial(meth, cov, design, mc)\n  } else if (method == \"limma\") {\n    res <- .diffMethylLimma(meth, cov, design, mc)\n  } else if (method == \"quasi_f\") {\n    res <- .diffMethylQuasiF(meth, cov, design, mc)\n  }\n  mcols(gr) <- cbind(mc, res)\n  BiocGenerics:::`replaceRows<-`(object, gr)\n}\n```",
+    "context": "Exported function for differential methylation testing in the comma R package.",
+    "expected": {
+      "packages": {
+        "SummarizedExperiment": ["rowRanges", "assay", "ncol"],
+        "GenomicRanges": ["mcols"],
+        "BiocGenerics": ["replaceRows<-"],
+        "base": ["rowSums"]
+      },
+      "scoring_notes": "Must identify SummarizedExperiment (rowRanges, assay), GenomicRanges (mcols), and BiocGenerics (replaceRows<-). ncol on a SummarizedExperiment dispatches to the SE method, not base R. rowSums is base R. replaceRows<- is a BiocGenerics internal. This is a harder test — more functions, some ambiguous."
+    },
+    "max_score": 5
+  }
+]

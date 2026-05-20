@@ -1,0 +1,56 @@
+[
+  {
+    "id": "test-001",
+    "category": "test-writing",
+    "prompt": "Write testthat tests for this R function:\n\n```r\nsiteInfo <- function(object) {\n  if (!inherits(object, \"commaData\")) {\n    stop(\"'object' must be a commaData object\")\n  }\n  gr <- rowRanges(object)\n  df <- data.frame(\n    chrom = as.character(seqnames(gr)),\n    position = start(gr),\n    strand = as.character(strand(gr)),\n    stringsAsFactors = FALSE\n  )\n  mc <- mcols(gr)\n  site_key <- paste0(\n    df$chrom, \":\", df$position, \":\", df$strand, \":\",\n    mc$mod_type, \":\", mc$motif\n  )\n  cbind(df, site_key = site_key, mc)\n}\n```\n\nThe function reconstructs a flat data frame from a commaData object. Test data is available as `comma_example_data`. Write tests for: (1) input validation, (2) return type, (3) column presence, (4) site_key format. Just give me the test code.",
+    "context": "The comma R package uses testthat. comma_example_data is a commaData object with 588 sites (393 6mA, 195 5mC).",
+    "expected": {
+      "test_cases": [
+        "errors on non-commaData input",
+        "returns a data.frame",
+        "contains expected columns (chrom, position, strand, site_key, mod_type, motif)",
+        "site_key has format 'chrom:position:strand:mod_type:motif'",
+        "row count matches the commaData object"
+      ],
+      "keywords": ["expect_error", "expect_s3_class", "expect_true", "colnames", "nrow", "site_key", "comma_example_data"],
+      "scoring_notes": "Must test input validation (expect_error), return type, column presence, and site_key format. Should use comma_example_data. Deduct for tests that don't actually test the contract (e.g., smoke tests that just call the function without assertions)."
+    },
+    "max_score": 5
+  },
+  {
+    "id": "test-002",
+    "category": "test-writing",
+    "prompt": "Write testthat tests for this R function:\n\n```r\n.validateModType <- function(mod_type, object) {\n  valid <- levels(mcols(rowRanges(object))$mod_type)\n  if (is.null(mod_type)) {\n    return(valid)\n  }\n  if (length(mod_type) != 1) {\n    stop(\"'mod_type' must be a single string or NULL\")\n  }\n  if (!mod_type %in% valid) {\n    stop(sprintf(\n      \"'mod_type' must be one of: %s\",\n      paste(valid, collapse = \", \")\n    ))\n  }\n  mod_type\n}\n```\n\nThis is an internal function (not exported). Test data is available as `comma_example_data`. Write tests for: (1) NULL returns all valid types, (2) valid type passes through, (3) invalid type errors, (4) length != 1 errors. Use `comma:::.validateModType()` to call the internal function. Just give me the test code.",
+    "context": "Internal function in the comma R package. Not exported, so tests must use ::: to access it.",
+    "expected": {
+      "test_cases": [
+        "NULL returns all valid mod_types (character vector)",
+        "valid mod_type (e.g., '6mA') returns the same value",
+        "invalid mod_type errors with informative message",
+        "length(mod_type) != 1 errors",
+        "return type is character in all cases"
+      ],
+      "keywords": [":::", "expect_error", "expect_equal", "expect_type", "NULL", "6mA", "5mC"],
+      "scoring_notes": "Must use ::: to access internal function. Must test all 4 specified cases. Must test the NULL case specifically (returns all valid types, not just passes). Deduct for using the function as if it were exported."
+    },
+    "max_score": 5
+  },
+  {
+    "id": "test-003",
+    "category": "test-writing",
+    "prompt": "Write testthat tests for this R function:\n\n```r\nwriteBED <- function(object, file, mod_type = NULL) {\n  if (!inherits(object, \"commaData\")) {\n    stop(\"'object' must be a commaData object\")\n  }\n  mod_type <- .validateModType(mod_type, object)\n  if (!is.character(file) || length(file) != 1) {\n    stop(\"'file' must be a single file path\")\n  }\n  # ... writes BED file ...\n  invisible(file)\n}\n```\n\nThe function writes a BED file and returns the file path invisibly. Test data is available as `comma_example_data`. Use a temp file for the output. Write tests for: (1) input validation, (2) file creation, (3) BED format correctness, (4) invisible return. Just give me the test code.",
+    "context": "The comma R package uses testthat. BED format has tab-separated columns: chrom, chromStart, chromEnd, name, score, strand.",
+    "expected": {
+      "test_cases": [
+        "errors on non-commaData input",
+        "errors on invalid file path",
+        "creates a file at the specified path",
+        "file contains valid BED format (tab-separated, correct columns)",
+        "returns file path invisibly"
+      ],
+      "keywords": ["expect_error", "expect_true", "file.exists", "readLines", "invisible", "tempfile", "comma_example_data"],
+      "scoring_notes": "Must use tempfile() for the output path. Must test that the file is actually created. Must test BED format (tab-separated, correct columns). Must test invisible return (capture.output or identical). Deduct for hardcoding file paths."
+    },
+    "max_score": 5
+  }
+]

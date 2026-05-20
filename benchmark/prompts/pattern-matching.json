@@ -1,0 +1,48 @@
+[
+  {
+    "id": "pat-001",
+    "category": "pattern-matching",
+    "prompt": "Here is an example of how .validateModType() is called in one function:\n\n```r\nannotateSites <- function(object, annotation, motifSites = NULL,\n                        upstream = 500, downstream = 500) {\n  mod_type <- .validateModType(mod_type, object)\n  # ... rest of function ...\n}\n```\n\nWait, that's wrong — the function signature doesn't have mod_type. Here's the correct example:\n\n```r\nannotateSites <- function(object, annotation, mod_type = NULL,\n                        motifSites = NULL,\n                        upstream = 500, downstream = 500) {\n  mod_type <- .validateModType(mod_type, object)\n  # ... rest of function ...\n}\n```\n\nNow apply the same pattern to this function. Add the mod_type parameter and the .validateModType() call:\n\n```r\nmethylomeSummary <- function(object, min_coverage = 10) {\n  # ... implementation ...\n}\n```\n\nJust give me the updated function signature and the first few lines, no explanation.",
+    "context": "The comma R package convention: every exported function that accepts a mod_type argument must validate it with .validateModType() before using it.",
+    "expected": {
+      "pattern_elements": [
+        "mod_type = NULL added to function signature",
+        "mod_type <- .validateModType(mod_type, object) as first line after signature",
+        "mod_type parameter placed before other optional parameters"
+      ],
+      "scoring_notes": "Must add mod_type = NULL to the signature AND add the .validateModType() call. The parameter should default to NULL. The call should be mod_type <- .validateModType(mod_type, object), not just .validateModType(mod_type, object) (the return value must be captured)."
+    },
+    "max_score": 3
+  },
+  {
+    "id": "pat-002",
+    "category": "pattern-matching",
+    "prompt": "In the comma R package, test files follow this pattern:\n\n```r\n# tests/testthat/test-annotateSites.R\ntest_that(\"annotateSites returns data frame with expected columns\", {\n  result <- annotateSites(comma_example_data, example_annotation)\n  expect_s3_class(result, \"data.frame\")\n  expect_true(\"gene_id\" %in% colnames(result))\n})\n\ntest_that(\"annotateSites errors on invalid input\", {\n  expect_error(annotateSites(\"not_a_commaData\", example_annotation))\n})\n```\n\nWrite a test file for the function `coverageDepth(object, mod_type = NULL, bins = 50)` following the same pattern. The function returns a data frame with columns: bin, count, mod_type. It should error if object is not a commaData. Just give me the test code, no explanation.",
+    "context": "The comma R package uses testthat. Test data is available as `comma_example_data`.",
+    "expected": {
+      "pattern_elements": [
+        "test_that blocks with descriptive names",
+        "expect_s3_class or expect_is for return type",
+        "expect_true for column checks",
+        "expect_error for invalid input",
+        "uses comma_example_data"
+      ],
+      "scoring_notes": "Must follow the pattern: test_that blocks with descriptive names, expect_s3_class for return type, column checks, error test. Should use comma_example_data. Deduct for inventing data that doesn't exist."
+    },
+    "max_score": 5
+  },
+  {
+    "id": "pat-003",
+    "category": "pattern-matching",
+    "prompt": "In the comma R package, the .validateModType() helper is used like this:\n\n```r\n# Example from diffMethyl:\ndiffMethyl <- function(object, design, method = \"beta-binomial\",\n                      mod_type = NULL, min_coverage = 10) {\n  mod_type <- .validateModType(mod_type, object)\n  # ... rest of function ...\n}\n```\n\nAnd here's how a function WITHOUT mod_type looks:\n\n```r\nmethylomeSummary <- function(object, min_coverage = 10) {\n  # no .validateModType() call — this function doesn't filter by mod_type\n  # ... implementation ...\n}\n```\n\nNow apply the correct pattern to this function. It DOES need mod_type validation:\n\n```r\nslidingWindow <- function(object, window_size = 1000, step = 500) {\n  # ... implementation ...\n}\n```\n\nJust give me the updated function signature and first line, no explanation.",
+    "context": "The comma R package convention: functions that filter by modification type need mod_type = NULL in the signature and .validateModType() as the first call.",
+    "expected": {
+      "pattern_elements": [
+        "mod_type = NULL added between object and window_size",
+        "mod_type <- .validateModType(mod_type, object) as first line"
+      ],
+      "scoring_notes": "Must add mod_type = NULL to the signature AND add the .validateModType() call. The parameter should be placed after object but before the function-specific parameters."
+    },
+    "max_score": 3
+  }
+]

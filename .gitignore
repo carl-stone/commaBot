@@ -22,3 +22,6 @@ Thumbs.db
 # LaTeX build artifacts (if docs are added later)
 *.aux
 *.out
+
+# Benchmark results (can be large, regenerate locally)
+benchmark/results/*.json
