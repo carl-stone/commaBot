@@ -684,6 +684,7 @@ def run_benchmark(model: str, host: str, category: str = None,
                 "keyword_score": 0, "keyword_max": 0,
                 "judge_score": 0, "judge_max": 0,
                 "by_variant": {}, "by_difficulty": {},
+                "total_elapsed": 0.0, "total_tokens_per_sec": 0.0, "prompt_count": 0,
             }
 
         results["categories"][cat_key]["prompts"].append(prompt_result)
@@ -694,6 +695,9 @@ def run_benchmark(model: str, host: str, category: str = None,
         if prompt_result["judge_score"] is not None:
             results["categories"][cat_key]["judge_score"] += prompt_result["judge_score"]
             results["categories"][cat_key]["judge_max"] += prompt_result["judge_max"]
+        results["categories"][cat_key]["total_elapsed"] += prompt_result.get("elapsed_seconds", 0)
+        results["categories"][cat_key]["total_tokens_per_sec"] += prompt_result.get("tokens_per_sec", 0)
+        results["categories"][cat_key]["prompt_count"] += 1
 
         # Track by variant
         variant_name = prompt_result["variant"]
@@ -739,6 +743,15 @@ def run_benchmark(model: str, host: str, category: str = None,
         total_weight += weight
 
     results["composite_score"] = round(total_weighted / total_weight, 3) if total_weight > 0 else 0
+
+    # Add overall speed stats
+    total_elapsed = sum(d.get("total_elapsed", 0) for d in results["categories"].values())
+    total_prompts = sum(d.get("prompt_count", 0) for d in results["categories"].values())
+    avg_tok_per_sec = sum(d.get("total_tokens_per_sec", 0) for d in results["categories"].values()) / total_prompts if total_prompts > 0 else 0
+    results["avg_elapsed_seconds"] = round(total_elapsed / total_prompts, 2) if total_prompts > 0 else 0
+    results["avg_tokens_per_sec"] = round(avg_tok_per_sec, 1)
+    results["total_elapsed_seconds"] = round(total_elapsed, 1)
+
     return results
 
 
@@ -859,8 +872,12 @@ def main():
                 if args.judge and data["judge_max"] > 0:
                     j_ratio = data["judge_score"] / data["judge_max"]
                     line += f"  judge={data['judge_score']}/{data['judge_max']} ({j_ratio:.0%})"
+                avg_speed = data["total_tokens_per_sec"] / data["prompt_count"] if data["prompt_count"] > 0 else 0
+                line += f"  {avg_speed:.0f} tok/s"
                 print(line)
             print(f"  {'COMPOSITE':<20} {results['composite_score']:.1%}")
+            print(f"  {'AVG SPEED':<20} {results['avg_tokens_per_sec']:.0f} tok/s ({results['avg_elapsed_seconds']:.1f}s/prompt)")
+            print(f"  {'TOTAL TIME':<20} {results['total_elapsed_seconds']:.0f}s")
 
             if not args.no_save:
                 path = save_results(results, model)
@@ -892,6 +909,14 @@ def main():
             for m in models_to_run:
                 comp_row += f"{all_results[m]['composite_score']:>14.1%}"
             print(comp_row)
+            speed_row = f"{'AVG SPEED':<20}"
+            for m in models_to_run:
+                speed_row += f"{all_results[m]['avg_tokens_per_sec']:>12.0f} t/s"
+            print(speed_row)
+            time_row = f"{'TOTAL TIME':<20}"
+            for m in models_to_run:
+                time_row += f"{all_results[m]['total_elapsed_seconds']:>10.0f}s    "
+            print(time_row)
     else:
         parser.print_help()
         sys.exit(1)
