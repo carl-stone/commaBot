@@ -214,8 +214,9 @@ def build_judge_prompt(category: str, expected: dict, model_response: str) -> st
         judge_expected["return_paths"] = expected["return_paths"]
     if "packages" in expected:
         judge_expected["packages"] = expected["packages"]
-    if "not_packages" in expected:
-        judge_expected["not_packages"] = expected["not_packages"]
+    # Intentionally exclude "not_packages" from judge prompt — the judge
+    # creates items for everything it sees, so including base R functions
+    # causes it to inflate the item count despite instructions not to
     if "required_tags" in expected:
         judge_expected["required_tags"] = expected["required_tags"]
     if "forbidden_patterns" in expected:
@@ -251,7 +252,7 @@ Ratings:
 - incorrect: The model lists the function but attributes it to the WRONG package (e.g., says mcols is from dplyr when it is from GenomicRanges, or says a base R function is from an external package)
 - missing: The model does not mention this function at all
 
-Important: In Bioconductor, functions like mcols(), rowRanges(), seqnames(), strand() are NOT base R — they come from GenomicRanges and SummarizedExperiment. A model that attributes these to dplyr, tidyverse, or base R is "incorrect", not "partial". The "not_packages" field lists base R functions for your reference — use it to check if the model incorrectly attributes base R functions to external packages, but do NOT create separate items for base R functions.""",
+Important: In Bioconductor, functions like mcols(), rowRanges(), seqnames(), strand() are NOT base R — they come from GenomicRanges and SummarizedExperiment. A model that attributes these to dplyr, tidyverse, or base R is "incorrect", not "partial".""",
 
         "roxygen2": """For each required tag in the expected answer, verify the tag actually appears in the model response text, then rate it.
 
