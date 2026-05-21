@@ -280,13 +280,15 @@ python runner.py --model qwen2.5-coder:7b --host http://carlpc:11434
 
 ## Models to Test
 
-| Model | Size | Notes |
-|---|---|---|
-| `llama3.2:3b` | 2 GB | Currently on carlpc; baseline |
-| `llama3.1:8b` | 4.7 GB | General-purpose 8B; good baseline for the 8B class |
-| `qwen2.5-coder:7b` | 4.7 GB | Code-specialized; likely best for our use case |
+All Ollama models use the default Q4_K_M quantization (4-bit, medium) unless otherwise specified. This is a significant quality reduction vs full-precision (FP16) — roughly 2x smaller on disk but with measurable accuracy loss. For our purposes, Q4_K_M is the practical choice since carlpc has 16 GB RAM.
 
-Future: `deepseek-coder-v2-lite`, `codellama:13b` (if RAM allows), etc.
+| Model | Parameters | Quantized Size | Full-precision Size | Notes |
+|---|---|---|---|---|
+| `llama3.2:3b` | 3.2B | 2 GB | ~6.4 GB | Baseline; smallest model worth testing |
+| `llama3.1:8b` | 8B | 4.7 GB | ~16 GB | General-purpose 8B; tests whether code-specialization matters |
+| `qwen2.5-coder:7b` | 7.6B | 4.7 GB | ~15.2 GB | Code-specialized; likely best for our use case |
+
+Future: `deepseek-coder-v2-lite`, `codellama:13b` (if RAM allows), `qwen2.5-coder:14b` (9.3 GB quantized, tight on 16 GB RAM).
 
 ## File Structure
 
