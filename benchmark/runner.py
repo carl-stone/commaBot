@@ -805,7 +805,8 @@ def save_results(results: dict, model: str) -> Path:
 def main():
     parser = argparse.ArgumentParser(description="commaBenchmark runner")
     parser.add_argument("--model", help="Model name (e.g., qwen2.5-coder:7b)")
-    parser.add_argument("--compare", nargs="+", help="Compare multiple models")
+    parser.add_argument("--models", nargs="+", help="Run multiple models sequentially")
+    parser.add_argument("--compare", nargs="+", help="Compare multiple models (from saved results)")
     parser.add_argument("--category", help="Run a single category")
     parser.add_argument("--host", default="http://localhost:11434",
                         help="Ollama API endpoint (default: http://localhost:11434)")
@@ -832,33 +833,65 @@ def main():
         compare_models(args.compare, args.host, args.category, args.timeout,
                       args.variant, args.judge, args.judge_model,
                       args.judge_host, args.judge_api_key)
-    elif args.model:
-        judge_str = f", judge={args.judge_model}" if args.judge else ""
-        print(f"Running benchmark: model={args.model}, host={args.host}, variant={args.variant}{judge_str}")
-        results = run_benchmark(args.model, args.host, args.category,
-                               exec_test=args.exec, timeout=args.timeout,
-                               prompt_variant=args.variant,
-                               use_judge=args.judge,
-                               judge_model=args.judge_model if args.judge else None,
-                               judge_host=args.judge_host,
-                               judge_api_key=args.judge_api_key)
+    elif args.models or args.model:
+        models_to_run = args.models or [args.model]
+        all_results = {}
+        for model in models_to_run:
+            judge_str = f", judge={args.judge_model}" if args.judge else ""
+            print(f"\n{'='*60}")
+            print(f"Running benchmark: model={model}, host={args.host}, variant={args.variant}{judge_str}")
+            print(f"{'='*60}")
+            results = run_benchmark(model, args.host, args.category,
+                                   exec_test=args.exec, timeout=args.timeout,
+                                   prompt_variant=args.variant,
+                                   use_judge=args.judge,
+                                   judge_model=args.judge_model if args.judge else None,
+                                   judge_host=args.judge_host,
+                                   judge_api_key=args.judge_api_key)
 
-        # Print summary
-        print(f"\n{'='*60}")
-        print("SUMMARY")
-        print(f"{'='*60}")
-        for cat, data in results["categories"].items():
-            kw_ratio = data["keyword_score"] / data["keyword_max"] if data["keyword_max"] > 0 else 0
-            line = f"  {cat:<20} kw={data['keyword_score']}/{data['keyword_max']} ({kw_ratio:.0%})"
-            if args.judge and data["judge_max"] > 0:
-                j_ratio = data["judge_score"] / data["judge_max"]
-                line += f"  judge={data['judge_score']}/{data['judge_max']} ({j_ratio:.0%})"
-            print(line)
-        print(f"  {'COMPOSITE':<20} {results['composite_score']:.1%}")
+            # Print summary
+            print(f"\n{'='*60}")
+            print(f"SUMMARY: {model}")
+            print(f"{'='*60}")
+            for cat, data in results["categories"].items():
+                kw_ratio = data["keyword_score"] / data["keyword_max"] if data["keyword_max"] > 0 else 0
+                line = f"  {cat:<20} kw={data['keyword_score']}/{data['keyword_max']} ({kw_ratio:.0%})"
+                if args.judge and data["judge_max"] > 0:
+                    j_ratio = data["judge_score"] / data["judge_max"]
+                    line += f"  judge={data['judge_score']}/{data['judge_max']} ({j_ratio:.0%})"
+                print(line)
+            print(f"  {'COMPOSITE':<20} {results['composite_score']:.1%}")
 
-        if not args.no_save:
-            path = save_results(results, args.model)
-            print(f"\nResults saved to: {path}")
+            if not args.no_save:
+                path = save_results(results, model)
+                print(f"Results saved to: {path}")
+
+            all_results[model] = results
+
+        # Print comparison table if multiple models
+        if len(models_to_run) > 1:
+            print(f"\n{'='*60}")
+            print("COMPARISON")
+            print(f"{'='*60}")
+            cats = list(all_results[models_to_run[0]]["categories"].keys())
+            header = f"{'Category':<20}" + "".join(f"{m:>15}" for m in models_to_run)
+            print(header)
+            print("-" * len(header))
+            for cat in cats:
+                row = f"{cat:<20}"
+                for m in models_to_run:
+                    data = all_results[m]["categories"][cat]
+                    if data["judge_max"] > 0:
+                        pct = data["judge_score"] / data["judge_max"]
+                        row += f"{pct:>14.0%}"
+                    else:
+                        kw_pct = data["keyword_score"] / data["keyword_max"] if data["keyword_max"] > 0 else 0
+                        row += f"{kw_pct:>14.0%}"
+                print(row)
+            comp_row = f"{'COMPOSITE':<20}"
+            for m in models_to_run:
+                comp_row += f"{all_results[m]['composite_score']:>14.1%}"
+            print(comp_row)
     else:
         parser.print_help()
         sys.exit(1)
