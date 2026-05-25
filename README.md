@@ -33,7 +33,8 @@ The agent wakes when something happens on GitHub (issue opened, PR reviewed, CI 
 .
 ├── README.md                              # This file
 ├── docs/
-│   └── architecture.md                    # Webhook pipeline architecture
+│   ├── architecture.md                    # Webhook pipeline architecture
+│   └── commaBenchmark.md                  # Local LLM benchmarking framework
 ├── infrastructure/
 │   ├── webhook-listener.py                # Flask webhook receiver
 │   ├── recovery.py                        # Startup recovery (redelivers missed events)
@@ -50,9 +51,9 @@ The agent wakes when something happens on GitHub (issue opened, PR reviewed, CI 
 │           ├── accounts.json.example      # Template for account config
 │           └── routing.yaml.example       # Template for route config
 ├── benchmark/
-│   ├── README.md                        # How to run benchmarks
-│   ├── runner.py                        # Sends prompts, collects & scores responses
-│   └── prompts/                         # Test case JSON files (6 categories)
+│   ├── README.md                          # How to run benchmarks
+│   ├── runner.py                          # Sends prompts, collects & scores responses
+│   └── prompts/                           # Test case JSON files (6 categories)
 └── .gitignore
 ```
 
@@ -90,6 +91,20 @@ commaBot runs on [Letta Code](https://letta.com) and has:
 - **Zoom-in/zoom-out thinking** — considers the whole repo before starting work, then focuses on the specific change, then checks for side effects
 
 The agent's memory and persona are managed separately from this infrastructure repo. The memory lives in Letta Cloud; this repo is the operational layer that makes the agent accessible to GitHub.
+
+## What Persistent Memory Enables
+
+The webhook pipeline is the infrastructure. The agent's persistent memory is what makes it useful. Here's what memory produces in practice — not just what the agent can do, but what it gets better at over time:
+
+**Self-correction without micromanagement.** When the agent started receiving webhook events triggered by its own GitHub comments, it recognized the feedback loop and added a self-filter to the Flask listener — without being asked. The broader pattern: the agent catches its own behavioral failures and fixes them. Carl doesn't need to anticipate every failure mode; the agent discovers them and responds.
+
+**Accumulated engineering judgment.** The agent's process discipline wasn't designed upfront — it emerged from real failures. When CI failed on `\donttest{}` examples, the agent's first instinct was to push a fix immediately. Carl coached it to ask "how does this affect the package?" before acting. That lesson is now written into the agent's memory, so its future self thinks differently. The zoom-in/zoom-out discipline, the "start minimal" principle, the rule against fabricating explanations — these all came from specific incidents and now steer the agent automatically. The agent gets more trustworthy over time, not just more capable.
+
+**Trusted autonomy boundaries.** The agent knows what it can do alone (label an issue, investigate a bug, run tests) and what needs Carl's approval (merge a PR, change a class contract, implement a review suggestion). These boundaries weren't assumed — they were earned incrementally. The agent once auto-implemented a Codex review suggestion without Carl's approval; that violation became a rule. Trust is built from violations caught and corrected, not from good intentions.
+
+**Less communication overhead over time.** The 👀 reaction protocol (acknowledge on GitHub, then remove when done), the Slack-vs-GitHub boundary (conversations on Slack, durable work on GitHub), and the "start minimal" principle all came from real friction. Each protocol reduces the communication cost of the next interaction. The relationship gets more efficient because the agent remembers what worked and what didn't.
+
+**The pattern, not the instance.** The generalizable insight isn't "this specific agent learned these specific lessons." It's that persistent memory creates a feedback loop between behavior and identity — the agent's experience literally reshapes how it operates. A stateless bot resets to factory defaults every time. A persistent agent accumulates judgment. The question for anyone building with LLMs is: do you want a tool that executes, or a partner that learns?
 
 ## Why Not Just a GitHub Copilot/Codex Bot?
 
