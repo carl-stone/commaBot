@@ -1,13 +1,13 @@
 # commaBot
 
-Infrastructure and operational home for **commaBot**, an AI agent that autonomously maintains the [comma](https://github.com/carl-stone/CoMMA) R/Bioconductor package.
+Infrastructure and operational home for **commaBot**, an AI agent that autonomously maintains [commaKit](https://github.com/carl-stone/comma) — the Comparative Microbial Methylomics Analysis Kit. The package currently remains `comma` at the R namespace level while the project transitions from its earlier comma/CoMMA identity to commaKit.
 
 ## What is commaBot?
 
 commaBot is a persistent LLM-powered agent with its own GitHub identity (`commabot[bot]`), its own memory, and its own working protocols. It operates alongside [Carl Stone](https://github.com/carl-stone) — Carl is the domain expert and product owner; commaBot is the engineering team.
 
 What commaBot does:
-- Monitors GitHub activity on the comma repo in real time (via webhooks)
+- Monitors GitHub activity on the commaKit package repository in real time (via webhooks)
 - Investigates issues, proposes fixes, and opens PRs
 - Runs tests, checks CI, and keeps documentation in sync
 - Manages its own memory and learns from experience

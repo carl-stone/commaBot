@@ -60,7 +60,7 @@ Runs at container startup to catch up on missed events. Queries the GitHub App d
 
 Everything runs in a single Docker container (`commabot`) defined by `Dockerfile` and `compose.yaml`:
 
-- **Base image**: `rocker/r-ver:4.5.2` (R environment for the comma package)
+- **Base image**: `rocker/r-ver:4.5.2` (R environment for the commaKit package; current R namespace `comma`)
 - **Additional tools**: Python 3.12, Node.js 22, GitHub CLI, `letta` CLI
 - **Entrypoint**: Starts the Letta Code server in background, waits for the channel adapter to be ready, runs the recovery script, then starts the Flask listener in the foreground
 - **Init process**: `init: true` in compose.yaml uses Docker's built-in tini as PID 1 to reap zombie processes

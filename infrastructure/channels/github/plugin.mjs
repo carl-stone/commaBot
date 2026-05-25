@@ -122,7 +122,7 @@ export const channelPlugin = {
             // Use a stable chatId for routing. Flask already formats the
             // message with repo info, so we use a fixed chatId that maps
             // to our route in routing.yaml.
-            const chatId = data.chatId || "github:carl-stone/CoMMA";
+            const chatId = data.chatId || "carl-stone/comma";
 
             void adapter
               .onMessage({
