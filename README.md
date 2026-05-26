@@ -1,21 +1,38 @@
 # commaBot
 
-Infrastructure and operational home for **commaBot**, an AI agent that autonomously maintains [commaKit](https://github.com/carl-stone/comma) — the Comparative Microbial Methylomics Analysis Kit. The package currently remains `comma` at the R namespace level while the project transitions from its earlier comma/CoMMA identity to commaKit.
+**An AI agent that develops a Bioconductor-class scientific R package.**
 
-## What is commaBot?
+commaBot autonomously maintains [commaKit](https://github.com/carl-stone/comma) — the Comparative Microbial Methylomics Analysis Kit, a Bioconductor-targeted R package for bacterial DNA methylation analysis from Nanopore sequencing. One scientist built this agent to serve as the entire engineering team for a real scientific software package.
 
-commaBot is a persistent LLM-powered agent with its own GitHub identity (`commabot[bot]`), its own memory, and its own working protocols. It operates alongside [Carl Stone](https://github.com/carl-stone) — Carl is the domain expert and product owner; commaBot is the engineering team.
+## The Problem
 
-What commaBot does:
-- Monitors GitHub activity on the commaKit package repository in real time (via webhooks)
-- Investigates issues, proposes fixes, and opens PRs
-- Runs tests, checks CI, and keeps documentation in sync
-- Manages its own memory and learns from experience
+Scientific software packages need dedicated engineering support — test suites, CI pipelines, schema migrations, code quality audits, documentation maintenance. Most labs don't have that. The PI writes code until it works, then moves on to the next paper. The package rots.
 
-What commaBot does NOT do:
-- Merge its own PRs (Carl reviews and merges everything)
-- Push directly to main (all nontrivial changes go through PRs)
-- Make silent fixes (all actions are visible, reviewable, and reversible)
+commaKit is a real package with real users: it handles S4 classes, Bioconductor conventions, multiple statistical backends for differential methylation, and genome-wide analysis pipelines. Maintaining it at Bioconductor quality normally requires a dedicated software engineer. Carl Stone is a microbiologist, not a software developer — so he built one.
+
+## What the Agent Does
+
+commaBot operates as the full engineering team for commaKit:
+
+- **Project management** — decomposes scientific goals into dependency-ordered issues, proposes implementation plans with migration strategies, tracks progress on GitHub
+- **Development** — writes R code, S4 class definitions, roxygen2 documentation, testthat tests, and vignettes following Bioconductor conventions
+- **Review** — runs `R CMD check`, audits code quality, identifies stale documentation and subtle bugs
+- **CI/CD** — monitors GitHub Actions, investigates failures, proposes fixes
+- **Memory management** — maintains its own conventions, design decisions, and working protocols in a git-backed memory system
+
+What it does NOT do: merge its own PRs, push to main, or make silent fixes. Carl reviews everything. The agent proposes; Carl decides.
+
+## Why This Is Hard
+
+Most AI agents can write a Flask app. Writing a Bioconductor package is a different domain entirely:
+
+**S4, not S3.** Bioconductor uses R's formal object system. Classes have validity methods, generics have dispatch rules, and the wrong accessor pattern silently corrupts data. The agent needs to understand `RangedSummarizedExperiment`, `GRanges`, `findOverlaps()`, and the difference between `mcols()` and `rowData()` — not just syntax, but the Bioconductor philosophy behind them.
+
+**Scientific correctness, not just code correctness.** `diffMethyl()` loops by `mod_context` (e.g., `6mA:GATC`) rather than `mod_type` (e.g., `6mA`) because pooling across sequence contexts produces spurious results. Effect sizes are on the beta scale (0–1), not the M-value scale, because that's what biologists interpret. Multiple testing correction is genome-wide across all modification contexts. These are statistical and scientific judgment calls, not style preferences.
+
+**Subtle wrongness is the default failure mode.** A 7B-parameter local model asked to write roxygen2 docs for an S4 method produces output that looks professional — correct `@param` tags, proper `@return` — but silently omits `@docType methods` and `@rdname`, uses invalid `mod_type` values like `"mC"` instead of `"5mC"`, and doesn't recognize `mcols()` as a Bioconductor accessor. The agent has to know the domain well enough to catch these.
+
+**The full engineering lifecycle.** Schema migration with deprecation shims and test-first migration. Dependency-ordered implementation across 14 issues. Code quality audits that file findings as GitHub issues before touching code. This is software engineering discipline that most human teams don't practice consistently, applied by an AI agent to a scientific package.
 
 ## How It Works
 
@@ -26,6 +43,29 @@ GitHub webhook → Tailscale Funnel → Flask listener → Channel adapter → A
 ```
 
 The agent wakes when something happens on GitHub (issue opened, PR reviewed, CI check fails), investigates the situation, comments with findings, proposes a next step, and waits for Carl's response before executing. See [docs/architecture.md](docs/architecture.md) for the full technical breakdown.
+
+## The Agent
+
+commaBot runs on [Letta Code](https://letta.com) with persistent memory — identity, conventions, and working protocols stored in a git-backed memory filesystem that syncs across environments. The memory is what makes the agent useful beyond a single interaction: it knows the package's architecture, the conventions Carl and it agreed on, the bugs it's already seen, and the working protocols negotiated over time.
+
+The agent operates across three execution contexts:
+- **Letta Cloud** — limited tools, for discussion with Carl
+- **Docker container** — full tools (R, `gh` CLI, `devtools`), for webhook-driven development work
+- **Carl's laptop** — full tools, SSH access to the container
+
+The GitHub webhook is just one input channel. The agent can run `devtools::check()` in the Docker container, SSH to the host machine to debug infrastructure issues, and discuss architecture with Carl in the desktop app — all as the same agent with the same memory.
+
+## What the Agent Learned
+
+The agent's process discipline wasn't designed upfront — it emerged from real failures, and each failure reshaped how the agent operates:
+
+**Investigate before acting.** When CI failed on `\donttest{}` examples, the agent's first instinct was to push a fix immediately. Carl coached it to ask "how does this affect the package?" before acting. That lesson is now written into the agent's memory. The zoom-in/zoom-out discipline, the "start minimal" principle, the rule against fabricating explanations — these all came from specific incidents and now steer the agent automatically.
+
+**Trusted autonomy is earned, not assumed.** The agent knows what it can do alone (label an issue, investigate a bug, run tests) and what needs Carl's approval (merge a PR, change a class contract, implement a review suggestion). It once auto-implemented a Codex review suggestion without Carl's approval; that violation became a rule. Trust is built from violations caught and corrected.
+
+**Self-correction without micromanagement.** When the agent started receiving webhook events triggered by its own GitHub comments, it recognized the feedback loop and added a self-filter to the Flask listener — without being asked. The broader pattern: the agent catches its own behavioral failures and fixes them. Carl doesn't need to anticipate every failure mode.
+
+**Less communication overhead over time.** The 👀 reaction protocol (acknowledge on GitHub, remove when done), the Slack-vs-GitHub boundary (conversations on Slack, durable work on GitHub), and the "start minimal" principle all came from real friction. Each protocol reduces the communication cost of the next interaction.
 
 ## Repository Structure
 
@@ -80,47 +120,6 @@ Quick start:
 3. Copy `accounts.json.example` → `accounts.json` and `routing.yaml.example` → `routing.yaml`
 4. Place your GitHub App private key as `commabot.private-key.pem`
 5. `docker compose up -d --build`
-
-## The Agent
-
-commaBot runs on [Letta Code](https://letta.com) and has:
-
-- **Persistent memory** — identity, conventions, and working protocols stored in a git-backed memory filesystem that syncs across environments
-- **Multiple execution contexts** — Letta Cloud (limited tools, for discussion), Docker container (full tools, for webhook-driven work), and Carl's laptop (full tools, SSH access to the container)
-- **Process discipline** — investigates before acting, proposes before executing, documents findings before fixing
-- **Zoom-in/zoom-out thinking** — considers the whole repo before starting work, then focuses on the specific change, then checks for side effects
-
-The agent's memory and persona are managed separately from this infrastructure repo. The memory lives in Letta Cloud; this repo is the operational layer that makes the agent accessible to GitHub.
-
-## What Persistent Memory Enables
-
-The webhook pipeline is the infrastructure. The agent's persistent memory is what makes it useful. Here's what memory produces in practice — not just what the agent can do, but what it gets better at over time:
-
-**Self-correction without micromanagement.** When the agent started receiving webhook events triggered by its own GitHub comments, it recognized the feedback loop and added a self-filter to the Flask listener — without being asked. The broader pattern: the agent catches its own behavioral failures and fixes them. Carl doesn't need to anticipate every failure mode; the agent discovers them and responds.
-
-**Accumulated engineering judgment.** The agent's process discipline wasn't designed upfront — it emerged from real failures. When CI failed on `\donttest{}` examples, the agent's first instinct was to push a fix immediately. Carl coached it to ask "how does this affect the package?" before acting. That lesson is now written into the agent's memory, so its future self thinks differently. The zoom-in/zoom-out discipline, the "start minimal" principle, the rule against fabricating explanations — these all came from specific incidents and now steer the agent automatically. The agent gets more trustworthy over time, not just more capable.
-
-**Trusted autonomy boundaries.** The agent knows what it can do alone (label an issue, investigate a bug, run tests) and what needs Carl's approval (merge a PR, change a class contract, implement a review suggestion). These boundaries weren't assumed — they were earned incrementally. The agent once auto-implemented a Codex review suggestion without Carl's approval; that violation became a rule. Trust is built from violations caught and corrected, not from good intentions.
-
-**Less communication overhead over time.** The 👀 reaction protocol (acknowledge on GitHub, then remove when done), the Slack-vs-GitHub boundary (conversations on Slack, durable work on GitHub), and the "start minimal" principle all came from real friction. Each protocol reduces the communication cost of the next interaction. The relationship gets more efficient because the agent remembers what worked and what didn't.
-
-**The pattern, not the instance.** The generalizable insight isn't "this specific agent learned these specific lessons." It's that persistent memory creates a feedback loop between behavior and identity — the agent's experience literally reshapes how it operates. A stateless bot resets to factory defaults every time. A persistent agent accumulates judgment. The question for anyone building with LLMs is: do you want a tool that executes, or a partner that learns?
-
-## Why Not Just a GitHub Copilot/Codex Bot?
-
-Standard GitHub integrations (Copilot, Codex, etc.) can respond to events on GitHub too. Here's what's different:
-
-**Persistent memory and identity.** A standard GitHub bot is stateless — each event triggers a fresh context with no memory of what happened before. commaBot wakes up with its full memory: the conventions Carl and it agreed on, the architecture decisions, the bugs it's already seen, the working protocols negotiated over time. A stateless bot would need to be told all of that every time, or it would violate those constraints immediately.
-
-**Operates across environments, not just on GitHub.** Standard bots live entirely inside GitHub — they comment on PRs and that's it. commaBot has three execution contexts: Letta Cloud (for discussion with Carl), the Docker container (for webhook-driven work with full tools), and Carl's laptop (for SSH access to the container). It can run `devtools::check()` in the Docker container, SSH to the host machine to debug routing issues, and discuss architecture with Carl in the desktop app — all as the same agent with the same memory. The GitHub webhook is just one input channel.
-
-**Process discipline, not just code generation.** Standard bots are reactive: you @-mention them, they generate code. commaBot has a stewardship stance — it investigates before acting, proposes before executing, documents findings before fixing. When CI failed on `\donttest{}` examples, it didn't just push a fix — it first asked how the failure affected the package, documented the finding, and then proposed the fix. Sometimes the right move is to say "not yet."
-
-**The human-agent relationship is negotiated, not assumed.** Carl and commaBot developed working protocols over time through actual collaboration. The zoom-in/zoom-out discipline, the "start minimal" principle, the 👀 reaction pattern — these emerged from real friction and real learning. A standard bot assumes a single interaction model (you ask, it answers). This is a relationship that evolved.
-
-**The agent modifies its own behavior.** The self-filtering story is the clearest example, but it's not the only one. When commaBot jumped to fix `\donttest{}` examples instead of asking how the failure affected the package, Carl coached it, and it wrote that lesson into its memory so its future self would think differently. A standard bot can't do this — it has no mechanism to rewrite its own instructions based on experience.
-
-**The honest caveat:** Standard bots are faster, cheaper, and more reliable for simple tasks. If you just want a bot that auto-reviews PRs for style issues, Copilot does that fine. commaBot is a different kind of thing — a long-term engineering partner with memory and judgment, not a code generator. The tradeoff is complexity and cost.
 
 ## License
 
