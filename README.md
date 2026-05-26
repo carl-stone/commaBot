@@ -8,7 +8,7 @@ commaBot autonomously maintains [commaKit](https://github.com/carl-stone/comma) 
 
 Scientific software packages need dedicated engineering support — test suites, CI pipelines, schema migrations, code quality audits, documentation maintenance. Most labs don't have that. The PI writes code until it works, then moves on to the next paper. The package rots.
 
-commaKit is a real package with real users: it handles S4 classes, Bioconductor conventions, multiple statistical backends for differential methylation, and genome-wide analysis pipelines. Maintaining it at Bioconductor quality normally requires a dedicated software engineer. Carl Stone is a microbiologist, not a software developer — so he built one.
+commaKit is a real package with real users: it handles S4 classes, Bioconductor conventions, multiple statistical backends for differential methylation, and genome-wide analysis pipelines. Maintaining it at Bioconductor quality normally requires a dedicated software engineer. Carl Stone is a computational biologist, but not a software developer — so he built one.
 
 ## What the Agent Does
 
@@ -28,11 +28,11 @@ Most AI agents can write a Flask app. Writing a Bioconductor package is a differ
 
 **S4, not S3.** Bioconductor uses R's formal object system. Classes have validity methods, generics have dispatch rules, and the wrong accessor pattern silently corrupts data. The agent needs to understand `RangedSummarizedExperiment`, `GRanges`, `findOverlaps()`, and the difference between `mcols()` and `rowData()` — not just syntax, but the Bioconductor philosophy behind them.
 
-**Scientific correctness, not just code correctness.** `diffMethyl()` loops by `mod_context` (e.g., `6mA:GATC`) rather than `mod_type` (e.g., `6mA`) because pooling across sequence contexts produces spurious results. Effect sizes are on the beta scale (0–1), not the M-value scale, because that's what biologists interpret. Multiple testing correction is genome-wide across all modification contexts. These are statistical and scientific judgment calls, not style preferences.
+**Scientific correctness, not just code correctness.** `diffMethyl()` loops by `mod_context` (e.g., `6mA:GATC`) rather than `mod_type` (e.g., `6mA`) because pooling across sequence contexts produces spurious results. Effect sizes are reported on the beta scale (0–1), not the M-value scale, because that's what biologists interpret. Multiple testing correction is genome-wide across all modification contexts. These are statistical and scientific judgment calls that get translated into reproducible code.
 
-**Subtle wrongness is the default failure mode.** A 7B-parameter local model asked to write roxygen2 docs for an S4 method produces output that looks professional — correct `@param` tags, proper `@return` — but silently omits `@docType methods` and `@rdname`, uses invalid `mod_type` values like `"mC"` instead of `"5mC"`, and doesn't recognize `mcols()` as a Bioconductor accessor. The agent has to know the domain well enough to catch these.
+**Subtle wrongness is the default failure mode.** An LLM asked to write roxygen2 docs for an S4 method produces output that looks professional — correct `@param` tags, proper `@return` — but silently omits `@docType methods` and `@rdname`, uses invalid `mod_type` values like `"mC"` instead of `"5mC"`, and doesn't recognize `mcols()` as a Bioconductor accessor. The agent has to know the domain well enough to catch these.
 
-**The full engineering lifecycle.** Schema migration with deprecation shims and test-first migration. Dependency-ordered implementation across 14 issues. Code quality audits that file findings as GitHub issues before touching code. This is software engineering discipline that most human teams don't practice consistently, applied by an AI agent to a scientific package.
+**The full engineering lifecycle.** Schema migration with deprecation shims and test-first migration. Dependency-ordered implementation of issues and features. Code quality audits that file findings as GitHub issues before touching code. This is software engineering discipline that most human teams don't practice consistently--or have the time to learn--applied by an AI agent to a scientific package.
 
 ## How It Works
 
